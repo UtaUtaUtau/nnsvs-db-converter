@@ -13,7 +13,9 @@
     2. Run the script using the terminal and pass terminal arguments.
     
 ```
-usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--write-labels] [--debug] path
+usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--write-labels]
+                       [--debug]
+                       path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
 path supplemented.
@@ -28,6 +30,9 @@ optional arguments:
   --max-silences int, -s int
                         The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to
                         maximize segment lengths. (default: 0)
+  --max-sp-length float, -S float
+                        The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from
+                        what I understand. (default: 0.5)
   --write-labels, -w    Write Audacity labels if you want to check segmentation labels. (default: False)
   --debug, -d           Show debug logs. (default: False)
 ```

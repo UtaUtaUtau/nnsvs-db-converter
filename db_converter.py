@@ -34,8 +34,17 @@ class LabelList: # should've been named segment in hindsight...
         lens = [x.length() for x in self.labels]
         return math.fsum(lens)
 
-    def to_phone_string(self): # space separated phonemes
-        return ' '.join([x.phone for x in self.labels]).replace('pau', 'AP')
+    def to_phone_string(self, max_sp_length = 1): # space separated phonemes
+        phones = []
+        for l in self.labels: # turn short silences to SP
+            p = l.phone
+            if p == 'pau':
+                if l.length() <= max_sp_length:
+                    p = 'SP'
+                else:
+                    p = 'AP'
+            phones.append(p)
+        return ' '.join(phones)
 
     def to_lengths_string(self): # space separated lengths
         return ' '.join([str(x.length()) for x in self.labels])
@@ -69,9 +78,20 @@ class LabelList: # should've been named segment in hindsight...
                 labels = deepcopy(self.labels)
                 a = labels[0]
                 b = labels[-1]
-                k = (max_length - shortest) / (a.length() + b.length()) # shortening factor
-                a.start = a.end - k * a.length()
-                b.end = b.start + k * b.length()
+                short_pau = min(a.length(), b.length()) # get shorter length pau
+                same_length_pau = shortest + short_pau * 2 
+
+                if same_length_pau < max_length: # shorten long pau first if the sample with similar length paus is shorter
+                    long_pau = short_pau + max_length - same_length_pau
+                    if a.length() > b.length():
+                        a.start = a.end - long_pau
+                    else:
+                        b.end = b.start + long_pau
+                else: # shorten both paus by the shorter length
+                    k = (max_length - shortest) / (2 * short_pau)
+                    a.start = a.end - k * short_pau
+                    b.end = b.start + k * short_pau
+                
                 return LabelList(labels)
         else:
             return deepcopy(self) # no need to do anything
@@ -155,8 +175,8 @@ def write_label(path, label): # write audacity label with start offset
         for l in label:
             f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
 
-def to_diffsinger_line(name, label): # diffsinger format
-    phones = label.to_phone_string()
+def to_diffsinger_line(name, label, max_sp_length = 1): # diffsinger format
+    phones = label.to_phone_string(max_sp_length = max_sp_length)
     lengths = label.to_lengths_string()
     return f'{name}|funnythings|{phones}|rest|0|{lengths}|0\n'
 
@@ -165,6 +185,7 @@ try:
     parser.add_argument('path', type=str, metavar='path', help='The path of the folder of the database.')
     parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
     parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
+    parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from what I understand.')
     parser.add_argument('--write-labels', '-w', action='store_true', help='Write Audacity labels if you want to check segmentation labels.')
     parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
     
@@ -218,7 +239,7 @@ try:
             s = int(fs * segment.start)
             e = int(fs * segment.end)
             sf.write(os.path.join(segment_loc, segment_name + '.wav'), x[s:e], fs)
-            transcript.write(to_diffsinger_line(segment_name, segment))
+            transcript.write(to_diffsinger_line(segment_name, segment, args.max_sp_length))
             if args.write_labels:
                 write_label(os.path.join(segment_loc, segment_name + '.txt'), segment)
     # close the file. very important <3
