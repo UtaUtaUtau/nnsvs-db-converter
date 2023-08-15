@@ -8,6 +8,8 @@ import math # maff
 from copy import deepcopy # deepcopy <3
 import logging # logger
 
+pauses = ['pau', 'SP', 'AP']
+
 # Combined formatter for argparse to show typing and defaults
 class CombinedFormatter(MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter):
     pass
@@ -97,13 +99,14 @@ class LabelList: # should've been named segment in hindsight...
             return deepcopy(self) # no need to do anything
 
     def segment_label(self, max_length = 15, max_silences = 0): # label splitting...
+        global pauses
         # Split by silences first
         labels = []
         pau_pos = []
         # Find all pau positions
         for i in range(len(self.labels)):
             l = self.labels[i]
-            if l.phone == 'pau':
+            if l.phone in pauses:
                 pau_pos.append(i)
 
         # segment by pau positions
