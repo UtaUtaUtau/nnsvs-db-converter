@@ -6,6 +6,10 @@ import os # make dirs and cmd pause
 import traceback # errors
 import math # maff
 from copy import deepcopy # deepcopy <3
+import csv # csv
+import json # json
+import librosa # key notation
+import parselmouth as pm # speedy pitch detection
 import logging # logger
 
 pauses = ['pau', 'SP', 'AP']
@@ -49,7 +53,79 @@ class LabelList: # should've been named segment in hindsight...
         return ' '.join(phones)
 
     def to_lengths_string(self): # space separated lengths
-        return ' '.join([str(x.length()) for x in self.labels])
+        return ' '.join([str(round(x.length(), 12)) for x in self.labels])
+    
+    def to_phone_nums_string(self, lang): # phoneme separations
+        # Find all vowel positions
+        vowel_pos = []
+        if self.labels[0].phone not in pauses + lang['vowels']:
+            vowel_pos.append(0)
+
+        for i in range(len(self.labels)):
+            l = self.labels[i]
+            if l.phone in lang['vowels']:
+                prev_l = self.labels[i-1]
+                if prev_l.phone in lang['liquids']: # check liquids before vowel. move position if liquid with consonant before is found
+                    if self.labels[i-2].phone not in lang['vowels']:
+                        vowel_pos.append(i-1)
+                    else:
+                        vowel_pos.append(i)
+                else:
+                    vowel_pos.append(i)
+            elif l.phone in pauses:
+                vowel_pos.append(i)
+        vowel_pos.append(len(self))
+
+        # use diff to calculate ph_num
+        ph_num = np.diff(vowel_pos)
+        return ' '.join(map(str, ph_num)), vowel_pos
+    
+    def to_midi_strings(self, x, fs, split_pos): # midi estimation
+        global pauses
+        f0, pps = get_pitch(x, fs) # get pitch
+        pitch = f0
+        pitch[pitch > 0] = librosa.hz_to_midi(pitch[pitch > 0])
+
+        if pitch.size < self.length() * pps:
+            pad = math.ceil(self.length() * pps) - pitch.size
+            pitch = np.pad(pitch, [0, pad], mode='edge')
+
+        note_seq = []
+        note_dur = []
+
+        offset = self.labels[0].start
+        for i in range(len(split_pos) - 1): # for each split
+            s = split_pos[i]
+            e = split_pos[i+1]
+
+            note_lab = LabelList(self.labels[s:e]) # temp label
+            p_s = math.floor((note_lab.labels[0].start - offset) * pps)
+            p_e = math.ceil((note_lab.labels[-1].end - offset) * pps)
+
+            # check for rests
+            is_rest = False
+            note_lab_phones = [x.phone for x in note_lab.labels]
+            for pau in pauses:
+                if pau in note_lab_phones:
+                    is_rest = True
+                    break
+            
+            if is_rest:
+                note_seq.append('rest') 
+            else: # get modal pitch
+                note_pitch = pitch[p_s:p_e]
+                note_pitch = note_pitch[note_pitch > 0]
+                if note_pitch.size > 0:
+                    counts = np.bincount(np.round(note_pitch).astype(np.int64))
+                    midi = counts.argmax()
+                    note_seq.append(librosa.midi_to_note(midi, unicode=False))
+                else:
+                    note_seq.append('rest')
+
+            note_dur.append(note_lab.length())
+        
+        return ' '.join(note_seq), ' '.join(map(lambda x : str(round(x, 12)), note_dur))
+
 
     def __len__(self): # number of labels
         return len(self.labels)
@@ -137,8 +213,14 @@ class LabelList: # should've been named segment in hindsight...
                         logging.debug('cut down')
                     else:
                         e -= 1
-                        resegment.append(combine_labels(labels[s:e]))
-                        logging.debug('shorter segment: %f', resegment[-1].length())
+                        shorter = labels[s:e]
+                        if len(shorter) > 0:
+                            resegment.append(combine_labels(shorter))
+                            logging.debug('shorter segment: %d', len(shorter))
+                        else:
+                            logging.warning('A segment could not be shortened to the given maximum length, this sample might be slightly longer than the maximum length you desire.')
+                            resegment.append(curr)
+                            e += 1
                     s = e
                 e += 1
         else: # first segmentation pass already left it with no pau in between
@@ -178,10 +260,17 @@ def write_label(path, label): # write audacity label with start offset
         for l in label:
             f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
 
-def to_diffsinger_line(name, label, max_sp_length = 1): # diffsinger format
-    phones = label.to_phone_string(max_sp_length = max_sp_length)
-    lengths = label.to_lengths_string()
-    return f'{name}|funnythings|{phones}|rest|0|{lengths}|0\n'
+def get_pitch(x, fs): # parselmouth F0
+    time_step = 0.005
+    f0_min = 65
+    f0_max = 1760
+
+    f0 = pm.Sound(x, sampling_frequency=fs).to_pitch_ac(
+        time_step=time_step, voicing_threshold=0.6,
+        pitch_floor=f0_min, pitch_ceiling=f0_max
+    ).selected_array['frequency']
+
+    return f0, 1 / time_step
 
 try:
     parser = ArgumentParser(description='Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the path supplemented.', formatter_class=CombinedFormatter)
@@ -190,6 +279,8 @@ try:
     parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
     parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from what I understand.')
     parser.add_argument('--write-labels', '-w', action='store_true', help='Write Audacity labels if you want to check segmentation labels.')
+    parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
+    parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
     parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
     
     args, _ = parser.parse_known_args()
@@ -197,8 +288,8 @@ try:
     # Prepare locations
     diffsinger_loc = os.path.join(args.path, 'diffsinger_db')
     segment_loc = os.path.join(diffsinger_loc, 'wavs')
-    transcript_loc = os.path.join(diffsinger_loc, 'transcriptions.txt')
-
+    transcript_loc = os.path.join(diffsinger_loc, 'transcriptions.csv')
+    
     logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO, datefmt='%x %a %X')
 
     # Label finding
@@ -219,11 +310,26 @@ try:
             logging.warning(f'Found more than one instance of a wave file equivalent for {file}. Picking {temp[0]}.')
         lab_wav[i] = temp[0]
 
+    # check for language definition
+    lang = None
+    transcript_header = ['name', 'ph_seq', 'ph_dur']
+    if args.language_def:
+        with open(args.language_def) as f:
+            lang = json.load(f)
+        transcript_header.append('ph_num')
+
+    if args.estimate_midi:
+        transcript_header.extend(['note_seq', 'note_dur'])
+
     # actually make the directories
     logging.info('Making directories and files.')
     os.makedirs(diffsinger_loc, exist_ok=True)
     os.makedirs(segment_loc, exist_ok=True)
-    transcript = open(transcript_loc, 'w', encoding='utf8')
+
+    # prepare transcript.csv
+    transcript_f = open(transcript_loc, 'w', encoding='utf8', newline='')
+    transcript = csv.DictWriter(transcript_f, fieldnames=transcript_header)
+    transcript.writeheader()
 
     # go through all of it.
     for lab, wav in lab_wav.items():
@@ -235,18 +341,38 @@ try:
         fname, _ = os.path.splitext(file)
 
         segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences)
-        logging.info(f'Splitting wave file and writing transcript.')
+        logging.info('Splitting wave file and writing to transcription file.')
         for i in range(len(segments)):
             segment = segments[i]
             segment_name = f'{fname}_seg{i:03d}'
+            logging.info(f'Segment {i+1} / {len(segments)}')
+
+            transcript_row = {
+                'name' : segment_name,
+                'ph_seq' : segment.to_phone_string(max_sp_length=args.max_sp_length),
+                'ph_dur' : segment.to_lengths_string()
+                }
+            
             s = int(fs * segment.start)
             e = int(fs * segment.end)
-            sf.write(os.path.join(segment_loc, segment_name + '.wav'), x[s:e], fs)
-            transcript.write(to_diffsinger_line(segment_name, segment, args.max_sp_length))
+            segment_wav = x[s:e]
+            sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
+
+            if args.language_def:
+                transcript_row['ph_num'], split_pos = segment.to_phone_nums_string(lang=lang)
+                dur = transcript_row['ph_dur'].split()
+                num = [int(x) for x in transcript_row['ph_num'].split()]
+                assert len(dur) == sum(num), 'Ops'
+                if args.estimate_midi:
+                    note_seq, note_dur = segment.to_midi_strings(segment_wav, fs, split_pos)
+                    transcript_row['note_seq'] = note_seq
+                    transcript_row['note_dur'] = note_dur
+
+            transcript.writerow(transcript_row)
             if args.write_labels:
                 write_label(os.path.join(segment_loc, segment_name + '.txt'), segment)
     # close the file. very important <3
-    transcript.close()
+    transcript_f.close()
         
 except Exception as e:
     for i in traceback.format_exception(e.__class__, e, e.__traceback__):
