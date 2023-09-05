@@ -12,7 +12,7 @@ import librosa # key notation
 import parselmouth as pm # speedy pitch detection
 import logging # logger
 
-pauses = ['pau', 'SP', 'AP']
+pauses = ['sil', 'pau', 'SP', 'AP']
 
 # Combined formatter for argparse to show typing and defaults
 class CombinedFormatter(MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter):
@@ -43,7 +43,7 @@ class LabelList: # should've been named segment in hindsight...
     def to_phone_string(self, max_sp_length = 1): # space separated phonemes
         phones = []
         for l in self.labels: # turn short silences to SP
-            p = l.phone
+            p = l.phone.replace('sil', 'SP')
             if p == 'pau':
                 if l.length() <= max_sp_length:
                     p = 'SP'
