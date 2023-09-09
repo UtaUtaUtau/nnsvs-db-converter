@@ -7,32 +7,30 @@
 # How to Use
 
 ## Main Usage
+
+### Through Python
  1. Have a Python install, preferably Python 3.8.
  2. Install the `numpy`, `soundfile`, `parselmouth`, and `librosa` libraries through pip like so:
  ```pip install numpy soundfile librosa praat-parselmouth```
  3. Pass the database with either method:
-    1. Drag and drop the database folder over the script.
+    1. Drag and drop the database folder over the script (similar to [basic conversion](#basic-conversion)).
     2. Run the script using the terminal and pass terminal arguments.
-
-## Language Definition
-
- Language definition is a `.json` file containing the vowels and the "liquids" of the phoneme system the labels are on. Vowels are where the splits will be made. Liquids are for special cases where a consonant is wanted to be the first part of the split. Here's a quick example `.json` file and a sample split.
-
-```json
-{
-   "vowels" : ["a", "i", "u", "e", "o", "N", "A", "I", "U", "E", "O"],
-   "liquids" : ["w", "y"]
-}
-```
-
-```
-ph_seq    |  SP | k | a | a | k | a | w | a | k | w | a | ... 
-ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ... 
-```
+        - You can access the terminal by typing `cmd` on the address bar in File Explorer. It will open command prompt with the current working directory as the one opened in File Explorer.
+    
+### Using portable version
+ 1. Download the portable version in the releases page.
+ 2. Pass the database with either method:
+    1. Drag and drop the database folder over `db_converter.bat` (similar to [basic conversion](#basic-conversion)).
+    2. Run the script using the terminal and pass terminal arguments.
+        - You can access the terminal by typing `cmd` on the address bar in File Explorer. It will open command prompt with the current working directory as the one opened in File Explorer.
 
 ## Example commands
 
  Anything within the square brackets is optional. Read more about them in [the help text.](#help-text-from-the-file-itself)
+ 
+ These example commands assume that your terminal's current working directory is where `db_converter.py` or `db_converter.bat` is in. If you're using the embeddable version, replace `python db_converter.py` to `db_converter.bat`.
+ 
+ **Tip:** You can drag and drop a file or a folder over the terminal window to automatically add the path in the arguments.
  
 ### Basic Conversion
 
@@ -62,6 +60,22 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L pa
 
 ```cmd
 python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json -m path/to/nnsvs/db
+```
+
+## Language Definition
+
+ Language definition is a `.json` file containing the vowels and the "liquids" of the phoneme system the labels are on. Vowels are where the splits will be made. Liquids are for special cases where a consonant is wanted to be the first part of the split. Here's a quick example `.json` file and a sample split.
+
+```json
+{
+   "vowels" : ["a", "i", "u", "e", "o", "N", "A", "I", "U", "E", "O"],
+   "liquids" : ["w", "y"]
+}
+```
+
+```
+ph_seq    |  SP | k | a | a | k | a | w | a | k | w | a | ... 
+ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ... 
 ```
 
 ## Help Text from the file itself
