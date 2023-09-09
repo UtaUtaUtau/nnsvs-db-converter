@@ -1,7 +1,7 @@
 # nnsvs-db-converter
  Python script to convert NNSVS DBs to DiffSinger without needing the NNSVS Python Library.
 # Information
- This is a Python script for converting singing databases with HTS mono labels into the DiffSinger format. This Python script deals with sample segmentation to mostly ensure that samples have a maximum given length and a maximum amount of pauses in between. The recognized silence phonemes by this script are `pau`, `SP`, and `AP`. It also assumes the labels have silences labeled at the start and end.
+ This is a Python script for converting singing databases with HTS mono labels into the DiffSinger format. This Python script deals with sample segmentation to mostly ensure that samples have a maximum given length and a maximum amount of pauses in between. The recognized silence phonemes by this script are `sil`, `pau`, `SP`, and `AP`. `sil` is always converted into `SP`. It also assumes the labels have silences labeled at the start and end.
  
  This Python script only requires four external libraries to work, unlike the existing one which needs the NNSVS library, which might be hard to install for most people.
 # How to Use
@@ -28,6 +28,40 @@
 ```
 ph_seq    |  SP | k | a | a | k | a | w | a | k | w | a | ... 
 ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ... 
+```
+
+## Example commands
+
+ Anything within the square brackets is optional. Read more about them in [the help text.](#help-text-from-the-file-itself)
+ 
+### Basic Conversion
+
+ If you want to use [MakeDiffSinger](https://github.com/openvpi/MakeDiffSinger) still to do all the extra variance data needed.
+ 
+ **Requirements:** NNSVS-style Database (.wav and .lab only)
+ 
+```cmd
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] path/to/nnsvs/db 
+```
+
+### Conversion with variance duration support
+
+ If want to use a DiffSinger variance model for timing prediction only.
+ 
+ **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
+ 
+```cmd
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json path/to/nnsvs/db
+```
+
+### Conversion with variance duration and pitch support
+
+ If you want to use a DiffSinger variance model for timing and pitch prediciton.
+ 
+ **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
+
+```cmd
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json -m path/to/nnsvs/db
 ```
 
 ## Help Text from the file itself
