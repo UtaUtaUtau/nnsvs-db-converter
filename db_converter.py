@@ -80,7 +80,7 @@ class LabelList: # should've been named segment in hindsight...
         ph_num = np.diff(vowel_pos)
         return ' '.join(map(str, ph_num)), vowel_pos
     
-    def to_midi_strings(self, x, fs, split_pos): # midi estimation
+    def to_midi_strings(self, x, fs, split_pos, cents=False): # midi estimation
         global pauses
         f0, pps = get_pitch(x, fs) # get pitch
         pitch = f0
@@ -118,7 +118,9 @@ class LabelList: # should've been named segment in hindsight...
                 if note_pitch.size > 0:
                     counts = np.bincount(np.round(note_pitch).astype(np.int64))
                     midi = counts.argmax()
-                    note_seq.append(librosa.midi_to_note(midi, unicode=False))
+                    if cents:
+                        midi = np.mean(note_pitch[(note_pitch >= midi - 0.5) & (note_pitch < midi + 0.5)])
+                    note_seq.append(librosa.midi_to_note(midi, cents=cents, unicode=False))
                 else:
                     note_seq.append('rest')
 
@@ -278,9 +280,10 @@ try:
     parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
     parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
     parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from what I understand.')
-    parser.add_argument('--write-labels', '-w', action='store_true', help='Write Audacity labels if you want to check segmentation labels.')
     parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
     parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
+    parser.add_argument('--use_cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
+    parser.add_argument('--write-labels', '-w', action='store_true', help='Write Audacity labels if you want to check segmentation labels.')
     parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
     
     args, _ = parser.parse_known_args()
@@ -364,7 +367,7 @@ try:
                 num = [int(x) for x in transcript_row['ph_num'].split()]
                 assert len(dur) == sum(num), 'Ops'
                 if args.estimate_midi:
-                    note_seq, note_dur = segment.to_midi_strings(segment_wav, fs, split_pos)
+                    note_seq, note_dur = segment.to_midi_strings(segment_wav, fs, split_pos, cents=args.use_cents)
                     transcript_row['note_seq'] = note_seq
                     transcript_row['note_dur'] = note_dur
 

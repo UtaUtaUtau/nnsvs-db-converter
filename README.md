@@ -59,7 +59,7 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L pa
  **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
 
 ```cmd
-python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json -m path/to/nnsvs/db
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json -m [-c] path/to/nnsvs/db
 ```
 
 ## Language Definition
@@ -80,8 +80,8 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 
 ## Help Text from the file itself
 ```
-usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--write-labels]
-                       [--language-def path] [--estimate-midi] [--debug]
+usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--language-def path]
+                       [--estimate-midi] [--use_cents] [--write-labels] [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -100,11 +100,12 @@ optional arguments:
   --max-sp-length float, -S float
                         The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from
                         what I understand. (default: 0.5)
-  --write-labels, -w    Write Audacity labels if you want to check segmentation labels. (default: False)
   --language-def path, -L path
                         The path of the language definition .json file. If present, phoneme numbers will be added.
                         (default: None)
   --estimate-midi, -m   Whether to estimate MIDI or not. Only works if a language definition is added for note
                         splitting. (default: False)
+  --use_cents, -c       Add cent offsets for MIDI estimation. (default: False)
+  --write-labels, -w    Write Audacity labels if you want to check segmentation labels. (default: False)
   --debug, -d           Show debug logs. (default: False)
 ```
