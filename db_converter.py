@@ -338,6 +338,9 @@ try:
     for lab, wav in lab_wav.items():
         logging.info(f'Reading {wav}.')
         x, fs = sf.read(wav)
+
+        if x.ndim > 1:
+            x = np.mean(x, axis=1)
         
         logging.info(f'Segmenting {lab}.')
         _, file = os.path.split(lab)
