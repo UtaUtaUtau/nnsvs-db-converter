@@ -359,7 +359,6 @@ try:
             s = int(fs * segment.start)
             e = int(fs * segment.end)
             segment_wav = x[s:e]
-            sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
 
             if args.language_def:
                 transcript_row['ph_num'], split_pos = segment.to_phone_nums_string(lang=lang)
@@ -371,9 +370,18 @@ try:
                     transcript_row['note_seq'] = note_seq
                     transcript_row['note_dur'] = note_dur
 
-            transcript.writerow(transcript_row)
-            if args.write_labels:
-                write_label(os.path.join(segment_loc, segment_name + '.txt'), segment)
+            all_pau = np.all(np.array(list(map(lambda x : x in pauses, transcript_row['ph_seq'].split()))))
+            all_rest = False
+            if 'note_seq' in transcript_header:
+                all_rest = np.all(np.array(list(map(lambda x : x == 'rest', transcript_row['note_seq'].split()))))
+
+            if not (all_pau or all_rest):
+                sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
+                transcript.writerow(transcript_row)
+                if args.write_labels:
+                    write_label(os.path.join(segment_loc, segment_name + '.txt'), segment)
+            else:
+                logging.warning('Detected pure silence either from segment label or note sequence. Skipping.')
     # close the file. very important <3
     transcript_f.close()
         
