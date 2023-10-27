@@ -39,7 +39,7 @@
  **Requirements:** NNSVS-style Database (.wav and .lab only)
  
 ```cmd
-python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] path/to/nnsvs/db 
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|aud] path/to/nnsvs/db 
 ```
 
 ### Conversion with variance duration support
@@ -49,7 +49,7 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] path/
  **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
  
 ```cmd
-python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json path/to/nnsvs/db
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|aud] -L path/to/language-def.json path/to/nnsvs/db
 ```
 
 ### Conversion with variance duration and pitch support
@@ -59,7 +59,7 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L pa
  **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
 
 ```cmd
-python db_converter.py [-l max_length -s max_silences -S max_sp_length -w] -L path/to/language-def.json -m [-c] path/to/nnsvs/db
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|aud] -L path/to/language-def.json -m [-c] path/to/nnsvs/db
 ```
 
 ## Language Definition
@@ -81,7 +81,7 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 ## Help Text from the file itself
 ```
 usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--language-def path]
-                       [--estimate-midi] [--use_cents] [--write-labels] [--debug]
+                       [--estimate-midi] [--use_cents] [--write-labels htk|aud] [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -106,6 +106,8 @@ optional arguments:
   --estimate-midi, -m   Whether to estimate MIDI or not. Only works if a language definition is added for note
                         splitting. (default: False)
   --use_cents, -c       Add cent offsets for MIDI estimation. (default: False)
-  --write-labels, -w    Write Audacity labels if you want to check segmentation labels. (default: False)
+  --write-labels htk|aud, -w htk|aud
+                        Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud"
+                        gives Audacity style labels. (default: None)
   --debug, -d           Show debug logs. (default: False)
 ```

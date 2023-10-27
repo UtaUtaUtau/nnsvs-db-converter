@@ -256,11 +256,14 @@ def read_label(path): # yeah..
 
     return LabelList(labels)
 
-def write_label(path, label): # write audacity label with start offset
+def write_label(path, label, isHTK=True): # write label with start offset
     offset = label[0].start
     with open(path, 'w', encoding='utf8') as f:
         for l in label:
-            f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
+            if isHTK:
+                f.write(f'{int(10000000 * (l.start - offset))} {int(10000000 * (l.end - offset))} {l.phone}\n')
+            else:
+                f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
 
 def get_pitch(x, fs): # parselmouth F0
     time_step = 0.005
@@ -283,7 +286,7 @@ try:
     parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
     parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
     parser.add_argument('--use_cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
-    parser.add_argument('--write-labels', '-w', action='store_true', help='Write Audacity labels if you want to check segmentation labels.')
+    parser.add_argument('--write-labels', '-w', type=str, metavar='htk|aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
     parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
     
     args, _ = parser.parse_known_args()
@@ -382,7 +385,8 @@ try:
                 sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
                 transcript.writerow(transcript_row)
                 if args.write_labels:
-                    write_label(os.path.join(segment_loc, segment_name + '.txt'), segment)
+                    isHTK = args.write_labels.lower() == 'htk'
+                    write_label(os.path.join(segment_loc, segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
             else:
                 logging.warning('Detected pure silence either from segment label or note sequence. Skipping.')
     # close the file. very important <3
