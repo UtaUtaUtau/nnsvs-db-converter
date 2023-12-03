@@ -277,6 +277,50 @@ def get_pitch(x, fs): # parselmouth F0
 
     return f0, 1 / time_step
 
+# From MakeDiffSinger/variance-temp-solution/get_pitch.py
+def norm_f0(f0):
+    f0 = np.log2(f0)
+    return f0
+
+def denorm_f0(f0, uv, pitch_padding=None):
+    f0 = 2 ** f0
+    if uv is not None:
+        f0[uv > 0] = 0
+    if pitch_padding is not None:
+        f0[pitch_padding] = 0
+    return f0
+
+def interp_f0(f0, uv=None):
+    if uv is None:
+        uv = f0 == 0
+    f0 = norm_f0(f0)
+    if sum(uv) == len(f0):
+        f0[uv] = -np.inf
+    elif sum(uv) > 0:
+        f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
+    return denorm_f0(f0, uv=None), uv
+
+
+def write_ds(loc, wav, fs, **kwargs):
+    res = {'offset' : 0}
+    res['text'] = kwargs['ph_seq']
+    res['ph_seq'] = kwargs['ph_seq']
+    res['ph_dur'] = kwargs['ph_dur']
+    if 'ph_num' in list(kwargs.keys()):
+        res['ph_num'] = kwargs['ph_num']
+        if 'note_seq' in list(kwargs.keys()):
+            res['note_seq'] = kwargs['note_seq']
+            res['note_dur'] = kwargs['note_dur']
+            res['note_slur'] = ' '.join(['0'] * len(kwargs['note_dur']))
+    f0, pps = get_pitch(wav, fs)
+    timestep = 1 / pps
+    f0, _ = interp_f0(f0)
+    res['f0_seq'] = ' '.join([str(round(x, 1)) for x in f0])
+    res['f0_timestep'] = str(timestep)
+
+    with open(loc, 'w', encoding='utf8') as f:
+        json.dump([res], f, indent=4)
+
 try:
     parser = ArgumentParser(description='Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the path supplemented.', formatter_class=CombinedFormatter)
     parser.add_argument('path', type=str, metavar='path', help='The path of the folder of the database.')
@@ -286,6 +330,7 @@ try:
     parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
     parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
     parser.add_argument('--use_cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
+    parser.add_argument('--write-ds', '-D', action='store_true', help='Write .ds files for usage with SlurCutter or for preprocessing.')
     parser.add_argument('--write-labels', '-w', type=str, metavar='htk|aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
     parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
     
@@ -387,6 +432,9 @@ try:
                 if args.write_labels:
                     isHTK = args.write_labels.lower() == 'htk'
                     write_label(os.path.join(segment_loc, segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
+                
+                if args.write_ds:
+                    write_ds(os.path.join(segment_loc, segment_name + '.ds'), segment_wav, fs, **transcript_row)
             else:
                 logging.warning('Detected pure silence either from segment label or note sequence. Skipping.')
     # close the file. very important <3

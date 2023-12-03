@@ -62,6 +62,16 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|au
 python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|aud] -L path/to/language-def.json -m [-c] path/to/nnsvs/db
 ```
 
+### Conversion with variance duration and pitch support (exporting with .ds files)
+
+ If you want to use a DiffSinger variance model for timing and pitch prediciton.
+ 
+ **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
+
+```cmd
+python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|aud] -L path/to/language-def.json -mD [-c] path/to/nnsvs/db
+```
+
 ## Language Definition
 
  Language definition is a `.json` file containing the vowels and the "liquids" of the phoneme system the labels are on. Vowels are where the splits will be made. Liquids are for special cases where a consonant is wanted to be the first part of the split. Here's a quick example `.json` file and a sample split.
@@ -81,7 +91,7 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 ## Help Text from the file itself
 ```
 usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--language-def path]
-                       [--estimate-midi] [--use_cents] [--write-labels htk|aud] [--debug]
+                       [--estimate-midi] [--use_cents] [--write-ds] [--write-labels htk|aud] [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -106,6 +116,7 @@ optional arguments:
   --estimate-midi, -m   Whether to estimate MIDI or not. Only works if a language definition is added for note
                         splitting. (default: False)
   --use_cents, -c       Add cent offsets for MIDI estimation. (default: False)
+  --write-ds, -D        Write .ds files for usage with SlurCutter or for preprocessing. (default: False)
   --write-labels htk|aud, -w htk|aud
                         Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud"
                         gives Audacity style labels. (default: None)
