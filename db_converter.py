@@ -1,6 +1,7 @@
 import numpy as np # Numpy <3
+import scipy.signal as signal # find peaks
 import soundfile as sf # wav read and write
-from argparse import ArgumentParser, MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter # fancy argument passinig
+from argparse import ArgumentParser, MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter # fancy argument passing
 import glob # file finding
 import os # make dirs and cmd pause
 import traceback # errors
@@ -10,7 +11,11 @@ import csv # csv
 import json # json
 import librosa # key notation
 import parselmouth as pm # speedy pitch detection
+import time # timer
 import logging # logger
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO, datefmt='%x %a %X')
+import itertools # repeat
+import concurrent.futures as futures # threading
 
 pauses = ['sil', 'pau', 'SP', 'AP']
 
@@ -30,26 +35,48 @@ class Label:
         if l < 0:
             logging.warning('Negative length.')
         return l
+    
+    def __sub__(self, other):
+        return Label(self.start - other, self.end - other, self.phone)
+    
+    def __add__(self, other):
+        return Label(self.start + other, self.end + other, self.phone)
 
 # Full label
 class LabelList: # should've been named segment in hindsight...
     def __init__(self, labels):
         self.labels = deepcopy(labels) # list of Labels
 
+    def __sub__(self, other):
+        labels = []
+        for lab in self.labels:
+            labels.append(lab - other)
+        return LabelList(labels)
+    
+    def __add__(self, other):
+        labels = []
+        for lab in self.labels:
+            labels.append(lab + other)
+        return LabelList(labels)
+
     def length(self): # total length in seconds
         lens = [x.length() for x in self.labels]
         return math.fsum(lens)
 
-    def to_phone_string(self, max_sp_length = 1): # space separated phonemes
+    def to_phone_string(self, max_sp_length = 1, detect_breaths=False): # space separated phonemes
         phones = []
-        for l in self.labels: # turn short silences to SP
-            p = l.phone.replace('sil', 'SP')
-            if p == 'pau':
-                if l.length() <= max_sp_length:
-                    p = 'SP'
-                else:
-                    p = 'AP'
-            phones.append(p)
+        for l in self.labels: 
+            if detect_breaths: # all non-SP and AP pauses are SP
+                p = l.phone.replace('pau', 'SP').replace('sil', 'SP')
+                phones.append(p)
+            else: # old behavior when not using breath detection
+                p = l.phone.replace('sil', 'SP')
+                if p == 'pau':
+                    if l.length() <= max_sp_length:
+                        p = 'SP'
+                    else:
+                        p = 'AP'
+                phones.append(p)
         return ' '.join(phones)
 
     def to_lengths_string(self): # space separated lengths
@@ -80,9 +107,9 @@ class LabelList: # should've been named segment in hindsight...
         ph_num = np.diff(vowel_pos)
         return ' '.join(map(str, ph_num)), vowel_pos
     
-    def to_midi_strings(self, x, fs, split_pos, cents=False): # midi estimation
+    def to_midi_strings(self, x, fs, split_pos, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, cents=False): # midi estimation
         global pauses
-        f0, pps = get_pitch(x, fs) # get pitch
+        f0, pps = get_pitch(x, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold) # get pitch
         pitch = f0
         pitch[pitch > 0] = librosa.hz_to_midi(pitch[pitch > 0])
 
@@ -93,14 +120,14 @@ class LabelList: # should've been named segment in hindsight...
         note_seq = []
         note_dur = []
 
-        offset = self.labels[0].start
+        temp_label = deepcopy(self) - self.labels[0].start # offset label to have it start at 0 because this receives segmented wavs
         for i in range(len(split_pos) - 1): # for each split
             s = split_pos[i]
             e = split_pos[i+1]
 
-            note_lab = LabelList(self.labels[s:e]) # temp label
-            p_s = math.floor((note_lab.labels[0].start - offset) * pps)
-            p_e = math.ceil((note_lab.labels[-1].end - offset) * pps)
+            note_lab = LabelList(temp_label[s:e]) # temp label
+            p_s = math.floor((note_lab.labels[0].start) * pps)
+            p_e = math.ceil((note_lab.labels[-1].end) * pps)
 
             # check for rests
             is_rest = False
@@ -128,6 +155,168 @@ class LabelList: # should've been named segment in hindsight...
         
         return ' '.join(note_seq), ' '.join(map(lambda x : str(round(x, 12)), note_dur))
 
+    def detect_breath(self, x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.6, window=0.05, min_len=0.1, min_db=-60, min_centroid=2000):
+        # Referenced from MakeDiffSinger/acoustic_forced_alignment/enhance_tg.py
+        global pauses
+        # Features needed
+        sound = pm.Sound(x, sampling_frequency=fs)
+        f0 = sound.to_pitch_ac(time_step=time_step, voicing_threshold=voicing_threshold, pitch_floor=f0_min, pitch_ceiling=f0_max).selected_array['frequency'] # VUVs
+        hop_size = int(time_step * fs)
+        centroid = librosa.feature.spectral_centroid(y=x, sr=fs, hop_length=hop_size).squeeze(0) # centroid
+        rms = librosa.amplitude_to_db(librosa.feature.rms(y=x, frame_length=1024, hop_length=hop_size).squeeze(0)) # RMS for peak/dip searching
+
+        ap_ranges = [] # all AP ranges
+        temp_label = deepcopy(self) - self.labels[0].start
+        for lab in temp_label.labels: 
+            if lab.phone not in pauses: # skip non pause phonemes
+                continue
+
+            if lab.length() < min_len: # skip pauses shorter than min breath len
+                continue
+ 
+            temp_ap_ranges = [] 
+            br_start = None
+            win_pos = lab.start
+            while win_pos + window <= lab.end: # original algorithm from reference code
+                all_unvoiced = (f0[int(win_pos / time_step) : int((win_pos + window) / time_step)] < f0_min).all()
+                rms_db = 20 * np.log10(np.clip(sound.get_rms(from_time=win_pos, to_time=win_pos + window), 1e-12, 1))
+
+                if all_unvoiced and rms_db >= min_db:
+                    if br_start is None:
+                        br_start = win_pos
+                else:
+                    if br_start is not None:
+                        br_end = win_pos + window - time_step
+                        if br_end - br_start >= min_len:
+                            mean_centroid = centroid[int(br_start / time_step):int(br_end / time_step)].mean()
+                            if mean_centroid >= min_centroid:
+                                temp_ap_ranges.append((br_start, br_end))
+                win_pos += time_step
+            if br_start is not None:
+                br_end = win_pos + window - time_step
+                if br_end - br_start >= min_len:
+                    mean_centroid = centroid[int(br_start / time_step):int(br_end / time_step)].mean()
+                    if mean_centroid >= min_centroid:
+                        temp_ap_ranges.append((br_start, br_end))
+            
+            if len(temp_ap_ranges) == 0: # skip if no AP was found
+                continue
+            
+            # combine AP ranges with similar starts
+            clean_ap_ranges = [list(temp_ap_ranges[0])]
+            for ap_start, ap_end in temp_ap_ranges: 
+                if clean_ap_ranges[-1][0] == ap_start:
+                    clean_ap_ranges[-1][1] = ap_end
+                else:
+                    clean_ap_ranges.append([ap_start, ap_end])
+
+            resized_ap_ranges = []
+            # resize AP ranges by finding the peak, finding the dips and finding the deepest dip closest to the peak on both sides
+            for ap_start, ap_end in clean_ap_ranges:
+                s = int((ap_start + window) / time_step)
+                e = int(ap_end / time_step)
+
+                if s >= e: # breath too short, can't analyze
+                    resized_ap_ranges.append((ap_start, ap_end))
+                    continue
+                
+                peak = np.argmax(rms[s:e]) + s
+                peaks = signal.find_peaks_cwt(rms[s:e], np.arange(6, 10)) + s # if successful, it finds the breath peak better than argmax
+                if peaks.size != 0:
+                    peak = peaks[np.argmax(rms[peaks])]
+
+                dips = signal.find_peaks_cwt(-rms[s:e], np.arange(1, 10)) + s
+                
+                if dips.size == 0: # can't resize if there are no dips
+                    resized_ap_ranges.append((ap_start, ap_end))
+                    continue
+                
+                # binary search nearby dips from peak
+                L = 0
+                R = len(dips) - 1
+
+                while L != R:
+                    m = math.ceil((L + R) / 2)
+                    if dips[m] > peak:
+                        R = m - 1
+                    else:
+                        L = m
+                
+                R = min(L + 1, len(dips) - 1)
+
+                # find dips to the left and right until the dip before or after is higher than the current dip
+                ss = dips[L]
+                ee = dips[R]
+                L_break = False
+                for i in range(L, 0, -1):
+                    ss = dips[i]
+                    if rms[dips[i]] < rms[dips[i-1]]:
+                        L_break = True
+                        break
+                
+                R_break = False
+                for i in range(R, len(dips)-1):
+                    ee = dips[i]
+                    if rms[dips[i]] < rms[dips[i+1]]:
+                        R_break = True
+                        break
+                
+                # if the end of the detected dips arrays were reached, it's probably better to use the original range
+                if not L_break:
+                    ss = ap_start
+                else:
+                    ss *= time_step
+
+                if not R_break:
+                    ee = ap_end
+                else:
+                    ee *= time_step
+
+                resized_ap_ranges.append((ss, ee))
+            ap_ranges.extend(resized_ap_ranges)
+
+        # insert AP ranges into label
+        for ap_start, ap_end in ap_ranges:
+            pos = temp_label.binary_search(ap_start) # find position in array
+            curr = temp_label.labels[pos]
+            if curr.phone not in pauses or curr.start == ap_start: # if it wasn't a pause it's most likely before the detection
+                if curr.start < ap_start: # index change not needed for curr.start == ap_start
+                    pos += 1
+                curr = deepcopy(temp_label.labels[pos])
+                ap_start = curr.start
+                del temp_label.labels[pos] # delete old label and replace with new
+                temp_label.labels.insert(pos, Label(ap_start, min(ap_end, curr.end), 'AP'))
+                if ap_end < curr.end: # add SP at the end if needed
+                    temp_label.labels.insert(pos+1, Label(ap_end, curr.end, 'SP'))
+            else:
+                sp_end = curr.end
+                curr.end = ap_start # push pause end for AP
+                curr.phone = 'SP'
+                temp_label.labels.insert(pos+1, Label(ap_start, min(ap_end, sp_end), 'AP')) # add AP
+                if ap_end < sp_end: # add SP at the end if needed
+                    temp_label.labels.insert(pos+2, Label(ap_end, sp_end, 'SP'))
+
+        # cleanup labels from short SPs
+        for i in range(len(temp_label) - 1, -1, -1):
+            curr = temp_label.labels[i]
+            if curr.length() < time_step: # good enough temporary short threshold
+                temp_label.labels[i-1].end = curr.end
+                del temp_label.labels[i]
+        
+        self.labels = (temp_label + self.labels[0].start).labels
+
+    def binary_search(self, time):
+        L = 0
+        R = len(self.labels) - 1
+
+        while L != R:
+            m = math.ceil((L + R) / 2)
+            if self.labels[m].start > time:
+                R = m - 1
+            else:
+                L = m
+        
+        return L
 
     def __len__(self): # number of labels
         return len(self.labels)
@@ -265,13 +454,9 @@ def write_label(path, label, isHTK=True): # write label with start offset
             else:
                 f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
 
-def get_pitch(x, fs): # parselmouth F0
-    time_step = 0.005
-    f0_min = 65
-    f0_max = 1760
-
+def get_pitch(x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45): # parselmouth F0
     f0 = pm.Sound(x, sampling_frequency=fs).to_pitch_ac(
-        time_step=time_step, voicing_threshold=0.6,
+        time_step=time_step, voicing_threshold=voicing_threshold,
         pitch_floor=f0_min, pitch_ceiling=f0_max
     ).selected_array['frequency']
 
@@ -301,7 +486,7 @@ def interp_f0(f0, uv=None):
     return denorm_f0(f0, uv=None), uv
 
 
-def write_ds(loc, wav, fs, **kwargs):
+def write_ds(loc, wav, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, **kwargs):
     res = {'offset' : 0}
     res['text'] = kwargs['ph_seq']
     res['ph_seq'] = kwargs['ph_seq']
@@ -312,8 +497,8 @@ def write_ds(loc, wav, fs, **kwargs):
             res['note_seq'] = kwargs['note_seq']
             res['note_dur'] = kwargs['note_dur']
             res['note_slur'] = ' '.join(['0'] * len(kwargs['note_dur']))
-    f0, pps = get_pitch(wav, fs)
-    timestep = 1 / pps
+    f0, _ = get_pitch(wav, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold)
+    timestep = time_step
     f0, _ = interp_f0(f0)
     res['f0_seq'] = ' '.join([str(round(x, 1)) for x in f0])
     res['f0_timestep'] = str(timestep)
@@ -321,126 +506,182 @@ def write_ds(loc, wav, fs, **kwargs):
     with open(loc, 'w', encoding='utf8') as f:
         json.dump([res], f, indent=4)
 
-try:
-    parser = ArgumentParser(description='Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the path supplemented.', formatter_class=CombinedFormatter)
-    parser.add_argument('path', type=str, metavar='path', help='The path of the folder of the database.')
-    parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
-    parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
-    parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. SP is an arbitrary short pause from what I understand.')
-    parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
-    parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
-    parser.add_argument('--use_cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
-    parser.add_argument('--write-ds', '-D', action='store_true', help='Write .ds files for usage with SlurCutter or for preprocessing.')
-    parser.add_argument('--write-labels', '-w', type=str, metavar='htk|aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
-    parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
+def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
+    logging.info(f'Reading {wav}.')
+    x, fs = sf.read(wav)
+
+    if x.ndim > 1:
+        x = np.mean(x, axis=1)
     
-    args, _ = parser.parse_known_args()
+    logging.info(f'Segmenting {lab}.')
+    _, file = os.path.split(lab)
+    fname, _ = os.path.splitext(file)
 
-    # Prepare locations
-    diffsinger_loc = os.path.join(args.path, 'diffsinger_db')
-    segment_loc = os.path.join(diffsinger_loc, 'wavs')
-    transcript_loc = os.path.join(diffsinger_loc, 'transcriptions.csv')
-    
-    logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO, datefmt='%x %a %X')
+    segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences)
+    logging.info('Splitting wave file and preparing transcription lines.')
+    transcripts = []
+    for i in range(len(segments)):
+        segment = segments[i]
+        segment_name = f'{fname}_seg{i:03d}'
+        logging.info(f'Segment {i+1} / {len(segments)}')
 
-    # Label finding
-    logging.info('Finding all labels.')
-    lab_locs = glob.glob(os.path.join(args.path, '**/*.lab'), recursive=True)
-    lab_locs.sort()
-    logging.info(f'Found {len(lab_locs)} label' + ('.' if len(lab_locs) == 1 else 's.'))
+        s = int(fs * segment.start)
+        e = int(fs * segment.end)
+        segment_wav = x[s:e]
 
-    # wave equivalent finding
-    lab_wav = {}
-    for i in lab_locs:
-        _, file = os.path.split(i)
-        fname, _ = os.path.splitext(file)
-        temp = glob.glob(args.path + f'/**/{fname}.wav', recursive=True)
-        if len(temp) == 0:
-            raise FileNotFoundError(f'No wave file equivalent of {file} was found.')
-        if len(temp) > 1:
-            logging.warning(f'Found more than one instance of a wave file equivalent for {file}. Picking {temp[0]}.')
-        lab_wav[i] = temp[0]
+        if args.detect_breaths:
+            # detect_breath(self, x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.6, window=0.05, min_len=0.06, min_db=-60, min_centroid=2000):
+            segment.detect_breath(segment_wav, fs,
+                                  time_step=args.time_step,
+                                  f0_min=args.f0_min, f0_max=args.f0_max,
+                                  voicing_threshold=args.voicing_threshold_breath,
+                                  window=args.breath_window_size,
+                                  min_len=args.breath_min_length,
+                                  min_db=args.breath_db_threshold,
+                                  min_centroid=args.breath_centroid_threshold)
 
-    # check for language definition
-    lang = None
-    transcript_header = ['name', 'ph_seq', 'ph_dur']
-    if args.language_def:
-        with open(args.language_def) as f:
-            lang = json.load(f)
-        transcript_header.append('ph_num')
+        transcript_row = {
+            'name' : segment_name,
+            'ph_seq' : segment.to_phone_string(max_sp_length=args.max_sp_length, detect_breaths=args.detect_breaths),
+            'ph_dur' : segment.to_lengths_string()
+            }
 
-    if args.estimate_midi:
-        transcript_header.extend(['note_seq', 'note_dur'])
+        if args.language_def:
+            transcript_row['ph_num'], split_pos = segment.to_phone_nums_string(lang=lang)
+            dur = transcript_row['ph_dur'].split()
+            num = [int(x) for x in transcript_row['ph_num'].split()]
+            assert len(dur) == sum(num), 'Ops'
+            if args.estimate_midi:
+                note_seq, note_dur = segment.to_midi_strings(segment_wav, fs,split_pos,
+                                                             time_step=args.time_step,
+                                                             f0_min=args.f0_min, f0_max=args.f0_max,
+                                                             voicing_threshold=args.voicing_threshold_midi,
+                                                             cents=args.use_cents)
+                transcript_row['note_seq'] = note_seq
+                transcript_row['note_dur'] = note_dur
 
-    # actually make the directories
-    logging.info('Making directories and files.')
-    os.makedirs(diffsinger_loc, exist_ok=True)
-    os.makedirs(segment_loc, exist_ok=True)
+        all_pau = np.all(np.array(list(map(lambda x : x in pauses, transcript_row['ph_seq'].split()))))
+        all_rest = False
+        if args.estimate_midi:
+            all_rest = np.all(np.array(list(map(lambda x : x == 'rest', transcript_row['note_seq'].split()))))
 
-    # prepare transcript.csv
-    transcript_f = open(transcript_loc, 'w', encoding='utf8', newline='')
-    transcript = csv.DictWriter(transcript_f, fieldnames=transcript_header)
-    transcript.writeheader()
-
-    # go through all of it.
-    for lab, wav in lab_wav.items():
-        logging.info(f'Reading {wav}.')
-        x, fs = sf.read(wav)
-
-        if x.ndim > 1:
-            x = np.mean(x, axis=1)
-        
-        logging.info(f'Segmenting {lab}.')
-        _, file = os.path.split(lab)
-        fname, _ = os.path.splitext(file)
-
-        segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences)
-        logging.info('Splitting wave file and writing to transcription file.')
-        for i in range(len(segments)):
-            segment = segments[i]
-            segment_name = f'{fname}_seg{i:03d}'
-            logging.info(f'Segment {i+1} / {len(segments)}')
-
-            transcript_row = {
-                'name' : segment_name,
-                'ph_seq' : segment.to_phone_string(max_sp_length=args.max_sp_length),
-                'ph_dur' : segment.to_lengths_string()
-                }
+        if not (all_pau or all_rest):
+            sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
+            transcripts.append(transcript_row)
+            if args.write_labels:
+                isHTK = args.write_labels.lower() == 'htk'
+                write_label(os.path.join(segment_loc, segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
             
-            s = int(fs * segment.start)
-            e = int(fs * segment.end)
-            segment_wav = x[s:e]
+            if args.write_ds:
+                write_ds(os.path.join(segment_loc, segment_name + '.ds'), segment_wav, fs,
+                         time_step=args.time_step, f0_min=args.f0_min, f0_max=args.f0_max,
+                         voicing_threshold=args.voicing_threshold_midi, **transcript_row)
+        else:
+            logging.warning('Detected pure silence either from segment label or note sequence. Skipping.')
+    
+    return transcripts
 
-            if args.language_def:
-                transcript_row['ph_num'], split_pos = segment.to_phone_nums_string(lang=lang)
-                dur = transcript_row['ph_dur'].split()
-                num = [int(x) for x in transcript_row['ph_num'].split()]
-                assert len(dur) == sum(num), 'Ops'
-                if args.estimate_midi:
-                    note_seq, note_dur = segment.to_midi_strings(segment_wav, fs, split_pos, cents=args.use_cents)
-                    transcript_row['note_seq'] = note_seq
-                    transcript_row['note_dur'] = note_dur
-
-            all_pau = np.all(np.array(list(map(lambda x : x in pauses, transcript_row['ph_seq'].split()))))
-            all_rest = False
-            if 'note_seq' in transcript_header:
-                all_rest = np.all(np.array(list(map(lambda x : x == 'rest', transcript_row['note_seq'].split()))))
-
-            if not (all_pau or all_rest):
-                sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
-                transcript.writerow(transcript_row)
-                if args.write_labels:
-                    isHTK = args.write_labels.lower() == 'htk'
-                    write_label(os.path.join(segment_loc, segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
-                
-                if args.write_ds:
-                    write_ds(os.path.join(segment_loc, segment_name + '.ds'), segment_wav, fs, **transcript_row)
-            else:
-                logging.warning('Detected pure silence either from segment label or note sequence. Skipping.')
-    # close the file. very important <3
-    transcript_f.close()
+if __name__ == '__main__':
+    try:
+        parser = ArgumentParser(description='Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the path supplemented.', formatter_class=CombinedFormatter)
+        parser.add_argument('path', type=str, metavar='path', help='The path of the folder of the database.')
+        parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
+        parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
+        parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. Ignored when breath detection is enabled. Only here for fallback.')
+        parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
+        parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
+        parser.add_argument('--use-cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
+        parser.add_argument('--time-step', '-t', type=float, default=0.005, help='The time step used for all frame-by-frame analysis functions.')
+        parser.add_argument('--f0-min', '-f', type=float, default=40, help='The minimum F0 to detect in Hz. Used in MIDI estimation and breath detection.')
+        parser.add_argument('--f0-max', '-F', type=float, default=1100, help='The maximum F0 to detect in Hz. Used in MIDI estimation and breath detection.')
+        parser.add_argument('--voicing-threshold-midi', '-V', type=float, default=0.45, help='The voicing threshold used for MIDI estimation.')
+        parser.add_argument('--detect-breaths', '-B', action='store_true', help='Detect breaths within all pauses.')
+        parser.add_argument('--voicing-threshold-breath', '-v', type=float, default=0.6, help='The voicing threshold used for breath detection.')
+        parser.add_argument('--breath-window-size', '-W', type=float, default=0.05, help='The size of the window in seconds for breath detection.')
+        parser.add_argument('--breath-min-length', '-b', type=float, default=0.1    , help='The minimum length of a breath in seconds.')
+        parser.add_argument('--breath-db-threshold', '-e', type=float, default=-60, help='The threshold in the RMS of the signal in dB to detect a breath.')
+        parser.add_argument('--breath-centroid-threshold', '-C', type=float, default=2000, help='The threshold in the spectral centroid of the signal in Hz to detect a breath.')
+        parser.add_argument('--write-ds', '-D', action='store_true', help='Write .ds files for usage with SlurCutter or for preprocessing.')
+        parser.add_argument('--write-labels', '-w', type=str, metavar='htk|aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
+        parser.add_argument('--num-processes', '-T', type=int, default=1, help='Number of processes to run for faster segmentation. Enter 0 to use all cores.')
+        parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
         
-except Exception as e:
-    for i in traceback.format_exception(e.__class__, e, e.__traceback__):
-        print(i, end='')
-    os.system('pause')
+        args, _ = parser.parse_known_args()
+        if args.debug:
+            logging.getLogger().setLevel(logging.DEBUG)
+        
+        # Prepare locations
+        diffsinger_loc = os.path.join(args.path, 'diffsinger_db')
+        segment_loc = os.path.join(diffsinger_loc, 'wavs')
+        transcript_loc = os.path.join(diffsinger_loc, 'transcriptions.csv')
+
+        # Label finding
+        logging.info('Finding all labels.')
+        lab_locs = glob.glob(os.path.join(args.path, '**/*.lab'), recursive=True)
+        lab_locs.sort()
+        logging.info(f'Found {len(lab_locs)} label' + ('.' if len(lab_locs) == 1 else 's.'))
+
+        # wave equivalent finding
+        lab_wav = {}
+        for i in lab_locs:
+            _, file = os.path.split(i)
+            fname, _ = os.path.splitext(file)
+            temp = glob.glob(args.path + f'/**/{fname}.wav', recursive=True)
+            if len(temp) == 0:
+                raise FileNotFoundError(f'No wave file equivalent of {file} was found.')
+            if len(temp) > 1:
+                logging.warning(f'Found more than one instance of a wave file equivalent for {file}. Picking {temp[0]}.')
+            lab_wav[i] = temp[0]
+
+        # check for language definition
+        lang = None
+        transcript_header = ['name', 'ph_seq', 'ph_dur']
+        if args.language_def:
+            with open(args.language_def) as f:
+                lang = json.load(f)
+            transcript_header.append('ph_num')
+
+        if args.estimate_midi:
+            transcript_header.extend(['note_seq', 'note_dur'])
+
+        # actually make the directories
+        logging.info('Making directories and files.')
+        os.makedirs(diffsinger_loc, exist_ok=True)
+        os.makedirs(segment_loc, exist_ok=True)
+
+        # prepare transcript.csv
+        transcript_f = open(transcript_loc, 'w', encoding='utf8', newline='')
+        transcript = csv.DictWriter(transcript_f, fieldnames=transcript_header)
+        transcript.writeheader()
+
+        # go through all of it.
+
+        t0 = time.perf_counter()
+        if args.num_processes == 1:
+            transcripts = []
+            for lab, wav in lab_wav.items():
+                transcripts.extend(process_lab_wav_pair(segment_loc, lab, wav, args, lang))
+            logging.info('Writing all transcripts.')
+            transcript.writerows(transcripts)
+        else:
+            workers = args.num_processes
+            if workers == 0:
+                workers = None
+                logging.info('Starting process pool with default number of threads.')
+            else:
+                logging.info(f'Starting process pool with {workers} threads.')
+            with futures.ProcessPoolExecutor(max_workers=workers) as executor:
+                results = executor.map(process_lab_wav_pair, itertools.repeat(segment_loc), lab_wav.keys(), lab_wav.values(), itertools.repeat(args), itertools.repeat(lang))
+            logging.info('Writing all transcripts.')
+            for res in results:
+                transcript.writerows(res)
+        runtime = time.perf_counter() - t0
+        logging.info(f'Took {runtime} seconds')
+
+        # close the file. very important <3
+        transcript_f.close()
+            
+    except Exception as e:
+        for i in traceback.format_exception(e.__class__, e, e.__traceback__):
+            print(i, end='')
+        os.system('pause')
