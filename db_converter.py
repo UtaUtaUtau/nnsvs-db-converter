@@ -163,7 +163,7 @@ class LabelList: # should've been named segment in hindsight...
         f0 = sound.to_pitch_ac(time_step=time_step, voicing_threshold=voicing_threshold, pitch_floor=f0_min, pitch_ceiling=f0_max).selected_array['frequency'] # VUVs
         hop_size = int(time_step * fs)
         centroid = librosa.feature.spectral_centroid(y=x, sr=fs, hop_length=hop_size).squeeze(0) # centroid
-        rms = librosa.amplitude_to_db(librosa.feature.rms(y=x, frame_length=1024, hop_length=hop_size).squeeze(0)) # RMS for peak/dip searching
+        rms = librosa.amplitude_to_db(librosa.feature.rms(y=x, hop_length=hop_size).squeeze(0)) # RMS for peak/dip searching
 
         ap_ranges = [] # all AP ranges
         temp_label = deepcopy(self) - self.labels[0].start
@@ -213,7 +213,7 @@ class LabelList: # should've been named segment in hindsight...
             resized_ap_ranges = []
             # resize AP ranges by finding the peak, finding the dips and finding the deepest dip closest to the peak on both sides
             for ap_start, ap_end in clean_ap_ranges:
-                s = int((ap_start + window) / time_step)
+                s = int((ap_start + window) / time_step) # add window to remove potential energy spike from voiced section before the pause
                 e = int(ap_end / time_step)
 
                 if s >= e: # breath too short, can't analyze
@@ -299,7 +299,7 @@ class LabelList: # should've been named segment in hindsight...
         # cleanup labels from short SPs
         for i in range(len(temp_label) - 1, -1, -1):
             curr = temp_label.labels[i]
-            if curr.length() < time_step: # good enough temporary short threshold
+            if curr.length() < time_step and curr.phone in pauses: # good enough temporary short threshold
                 temp_label.labels[i-1].end = curr.end
                 del temp_label.labels[i]
         
