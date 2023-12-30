@@ -3,7 +3,8 @@ import scipy.signal as signal # find peaks
 import soundfile as sf # wav read and write
 from argparse import ArgumentParser, MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter # fancy argument passing
 import glob # file finding
-import os # make dirs and cmd pause
+import os # cmd pause
+from pathlib import Path # path fiddling
 import traceback # errors
 import math # maff
 from copy import deepcopy # deepcopy <3
@@ -512,10 +513,13 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
 
     if x.ndim > 1:
         x = np.mean(x, axis=1)
+
+    if args.audio_sample_rate != 0 and fs != args.audio_sample_rate:
+        x = librosa.resample(x, orig_sr=fs, target_sr=args.audio_sample_rate)
+        fs = args.audio_sample_rate
     
     logging.info(f'Segmenting {lab}.')
-    _, file = os.path.split(lab)
-    fname, _ = os.path.splitext(file)
+    fname = lab.stem
 
     segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences)
     logging.info('Splitting wave file and preparing transcription lines.')
@@ -566,14 +570,14 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
             all_rest = np.all(np.array(list(map(lambda x : x == 'rest', transcript_row['note_seq'].split()))))
 
         if not (all_pau or all_rest):
-            sf.write(os.path.join(segment_loc, segment_name + '.wav'), segment_wav, fs)
+            sf.write(segment_loc / (segment_name + '.wav'), segment_wav, fs)
             transcripts.append(transcript_row)
             if args.write_labels:
                 isHTK = args.write_labels.lower() == 'htk'
-                write_label(os.path.join(segment_loc, segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
+                write_label(segment_loc / (segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
             
             if args.write_ds:
-                write_ds(os.path.join(segment_loc, segment_name + '.ds'), segment_wav, fs,
+                write_ds(segment_loc / (segment_name + '.ds'), segment_wav, fs,
                          time_step=args.time_step, f0_min=args.f0_min, f0_max=args.f0_max,
                          voicing_threshold=args.voicing_threshold_midi, **transcript_row)
         else:
@@ -588,6 +592,7 @@ if __name__ == '__main__':
         parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
         parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
         parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. Ignored when breath detection is enabled. Only here for fallback.')
+        parser.add_argument('--audio-sample-rate', '-r', type=int, default=44100, help='The sampling rate in Hz to put the audio files in. If the sampling rates do not match it will be converted to the specified sampling rate. Enter 0 to ignore sample rates.')
         parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
         parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
         parser.add_argument('--use-cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
@@ -611,27 +616,29 @@ if __name__ == '__main__':
             logging.getLogger().setLevel(logging.DEBUG)
         
         # Prepare locations
-        diffsinger_loc = os.path.join(args.path, 'diffsinger_db')
-        segment_loc = os.path.join(diffsinger_loc, 'wavs')
-        transcript_loc = os.path.join(diffsinger_loc, 'transcriptions.csv')
+        base_path = Path(args.path)
+        diffsinger_loc = base_path / 'diffsinger_db'
+        segment_loc = diffsinger_loc / 'wavs'
+        transcript_loc = diffsinger_loc / 'transcriptions.csv'
 
         # Label finding
         logging.info('Finding all labels.')
-        lab_locs = glob.glob(os.path.join(args.path, '**/*.lab'), recursive=True)
+        lab_locs = glob.glob(str(base_path / '**/*.lab'), recursive=True)
         lab_locs.sort()
+        lab_locs = [Path(x) for x in lab_locs]
         logging.info(f'Found {len(lab_locs)} label' + ('.' if len(lab_locs) == 1 else 's.'))
-
+        
         # wave equivalent finding
         lab_wav = {}
         for i in lab_locs:
-            _, file = os.path.split(i)
-            fname, _ = os.path.splitext(file)
-            temp = glob.glob(args.path + f'/**/{fname}.wav', recursive=True)
+            file = i.name
+            wav_name = i.with_suffix('.wav').name
+            temp = glob.glob(str(base_path / '**' / wav_name), recursive=True)
             if len(temp) == 0:
                 raise FileNotFoundError(f'No wave file equivalent of {file} was found.')
             if len(temp) > 1:
                 logging.warning(f'Found more than one instance of a wave file equivalent for {file}. Picking {temp[0]}.')
-            lab_wav[i] = temp[0]
+            lab_wav[i] = Path(temp[0])
 
         # check for language definition
         lang = None
@@ -646,8 +653,8 @@ if __name__ == '__main__':
 
         # actually make the directories
         logging.info('Making directories and files.')
-        os.makedirs(diffsinger_loc, exist_ok=True)
-        os.makedirs(segment_loc, exist_ok=True)
+        diffsinger_loc.mkdir(exist_ok=True)
+        segment_loc.mkdir(exist_ok=True)
 
         # prepare transcript.csv
         transcript_f = open(transcript_loc, 'w', encoding='utf8', newline='')

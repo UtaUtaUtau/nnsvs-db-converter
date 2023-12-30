@@ -105,6 +105,9 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 
  A new argument `--num-processes` or `-T` is added for this. This sets the number of processes used. Setting it to 0 uses all of your cores. **Be careful when using this option**
 
+## Sampling Rate Checking
+ As of 12/30/2023, `nnsvs-db-converter` now adds a way to check for the sampling rates of each audio file. It will automatically change the sampling rate to the one specified if this does not match. By default, it will make sure all audio files are 44100 Hz. This setting can be turned off by passing `-r 0`.
+
 ## .ds file and label export
 
  `nnsvs-db-converter` supports exporting `.ds` files and label files. `.ds` files can be exported for usage with [SlurCutter,](https://github.com/openvpi/dataset-tools/releases) and label files can be exported for checking the segmented labels or generally for segmenting an NNSVS database. You can export in Audacity format or HTK format. Read more about how to use this in [the help text.](#help-text-from-the-file-itself)
@@ -113,12 +116,12 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 
 ## Help Text from the file itself
 ```
-usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float] [--language-def path]
-                       [--estimate-midi] [--use-cents] [--time-step float] [--f0-min float] [--f0-max float]
-                       [--voicing-threshold-midi float] [--detect-breaths] [--voicing-threshold-breath float]
-                       [--breath-window-size float] [--breath-min-length float] [--breath-db-threshold float]
-                       [--breath-centroid-threshold float] [--write-ds] [--write-labels htk|aud] [--num-processes int]
-                       [--debug]
+usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float]
+                       [--audio-sample-rate int] [--language-def path] [--estimate-midi] [--use-cents]
+                       [--time-step float] [--f0-min float] [--f0-max float] [--voicing-threshold-midi float]
+                       [--detect-breaths] [--voicing-threshold-breath float] [--breath-window-size float]
+                       [--breath-min-length float] [--breath-db-threshold float] [--breath-centroid-threshold float]
+                       [--write-ds] [--write-labels htk|aud] [--num-processes int] [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -137,6 +140,9 @@ optional arguments:
   --max-sp-length float, -S float
                         The maximum length for silences (pau) to turn into SP. Ignored when breath detection is
                         enabled. Only here for fallback. (default: 0.5)
+  --audio-sample-rate int, -r int
+                        The sample rate to put the audio files in. If the sample rates do not match it will be
+                        converted to this sample rate. Enter 0 to ignore sample rates. (default: 44100)
   --language-def path, -L path
                         The path of the language definition .json file. If present, phoneme numbers will be added.
                         (default: None)
