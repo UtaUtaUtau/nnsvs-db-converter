@@ -297,12 +297,17 @@ class LabelList: # should've been named segment in hindsight...
                 if ap_end < sp_end: # add SP at the end if needed
                     temp_label.labels.insert(pos+2, Label(ap_end, sp_end, 'SP'))
 
-        # cleanup labels from short SPs
-        for i in range(len(temp_label) - 1, -1, -1):
+        # cleanup labels from short pauses
+        for i in range(len(temp_label) - 1, 0, -1):
             curr = temp_label.labels[i]
             if curr.length() < time_step and curr.phone in pauses: # good enough temporary short threshold
                 temp_label.labels[i-1].end = curr.end
                 del temp_label.labels[i]
+        # short label cleanup for start label
+        curr = temp_label.labels[0]
+        if curr.length() < time_step and curr.phone in pauses:
+            temp_label.labels[1].start = curr.start
+            del temp_label.labels[0]
         
         self.labels = (temp_label + self.labels[0].start).labels
 
