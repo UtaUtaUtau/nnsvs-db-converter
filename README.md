@@ -116,12 +116,13 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 
 ## Help Text from the file itself
 ```
-usage: db_converter.py [-h] [--max-length float] [--max-silences int] [--max-sp-length float]
-                       [--audio-sample-rate int] [--language-def path] [--estimate-midi] [--use-cents]
-                       [--time-step float] [--f0-min float] [--f0-max float] [--voicing-threshold-midi float]
-                       [--detect-breaths] [--voicing-threshold-breath float] [--breath-window-size float]
-                       [--breath-min-length float] [--breath-db-threshold float] [--breath-centroid-threshold float]
-                       [--write-ds] [--write-labels htk|aud] [--num-processes int] [--debug]
+usage: db_converter.py [-h] [--max-length float] [--max-length-relaxation-factor float] [--max-silences int]
+                       [--max-sp-length float] [--audio-sample-rate int] [--language-def path] [--estimate-midi]
+                       [--use-cents] [--time-step float] [--f0-min float] [--f0-max float]
+                       [--voicing-threshold-midi float] [--detect-breaths] [--voicing-threshold-breath float]
+                       [--breath-window-size float] [--breath-min-length float] [--breath-db-threshold float]
+                       [--breath-centroid-threshold float] [--write-ds] [--write-labels htk|aud] [--num-processes int]
+                       [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -134,6 +135,9 @@ optional arguments:
   -h, --help            show this help message and exit
   --max-length float, -l float
                         The maximum length of the samples in seconds. (default: 15)
+  --max-length-relaxation-factor float, -R float
+                        This length in seconds will be continuously added to the maximum length for segments that are
+                        too long for the maximum length to cut. (default: 0.1)
   --max-silences int, -s int
                         The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to
                         maximize segment lengths. (default: 0)
@@ -141,8 +145,8 @@ optional arguments:
                         The maximum length for silences (pau) to turn into SP. Ignored when breath detection is
                         enabled. Only here for fallback. (default: 0.5)
   --audio-sample-rate int, -r int
-                        The sample rate to put the audio files in. If the sample rates do not match it will be
-                        converted to this sample rate. Enter 0 to ignore sample rates. (default: 44100)
+                        The sampling rate in Hz to put the audio files in. If the sampling rates do not match it will
+                        be converted to the specified sampling rate. Enter 0 to ignore sample rates. (default: 44100)
   --language-def path, -L path
                         The path of the language definition .json file. If present, phoneme numbers will be added.
                         (default: None)

@@ -371,7 +371,7 @@ class LabelList: # should've been named segment in hindsight...
         else:
             return deepcopy(self) # no need to do anything
 
-    def segment_label(self, max_length = 15, max_silences = 0): # label splitting...
+    def segment_label(self, max_length = 15, max_silences = 0, length_relax=0.1): # label splitting...
         global pauses
         # Split by silences first
         labels = []
@@ -416,7 +416,11 @@ class LabelList: # should've been named segment in hindsight...
                             logging.debug('shorter segment: %d', len(shorter))
                         else:
                             logging.warning('A segment could not be shortened to the given maximum length, this sample might be slightly longer than the maximum length you desire.')
-                            resegment.append(curr)
+                            k = 1
+                            while temp is None:
+                                temp = curr.shorten_label(max_length=max_length + k*length_relax)
+                                k += 1
+                            resegment.append(temp)
                             e += 1
                     s = e
                 e += 1
@@ -526,7 +530,7 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
     logging.info(f'Segmenting {lab}.')
     fname = lab.stem
 
-    segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences)
+    segments = read_label(lab).segment_label(max_length=args.max_length, max_silences=args.max_silences, length_relax=args.max_length_relaxation_factor)
     logging.info('Splitting wave file and preparing transcription lines.')
     transcripts = []
     for i in range(len(segments)):
@@ -595,6 +599,7 @@ if __name__ == '__main__':
         parser = ArgumentParser(description='Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the path supplemented.', formatter_class=CombinedFormatter)
         parser.add_argument('path', type=str, metavar='path', help='The path of the folder of the database.')
         parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
+        parser.add_argument('--max-length-relaxation-factor', '-R', type=float, default=0.1, help='This length in seconds will be continuously added to the maximum length for segments that are too long for the maximum length to cut.')
         parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
         parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. Ignored when breath detection is enabled. Only here for fallback.')
         parser.add_argument('--audio-sample-rate', '-r', type=int, default=44100, help='The sampling rate in Hz to put the audio files in. If the sampling rates do not match it will be converted to the specified sampling rate. Enter 0 to ignore sample rates.')
