@@ -10,8 +10,8 @@
 
 ### Through Python
  1. Have a Python install, preferably Python 3.8.
- 2. Install the `numpy`, `scipy`, `soundfile`, `parselmouth`, and `librosa` libraries through pip like so:
- ```pip install numpy scipy soundfile librosa praat-parselmouth```
+ 2. Install the `numpy`, `scipy`, `soundfile`, `parselmouth`, `pyworld`, and `librosa` libraries through pip like so:
+ ```pip install numpy scipy soundfile librosa praat-parselmouth pyworld```
  3. Pass the database with either method:
     1. Drag and drop the database folder over the script (similar to [basic conversion](#basic-conversion)).
     2. Run the script using the terminal and pass terminal arguments.
