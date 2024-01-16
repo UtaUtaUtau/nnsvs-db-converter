@@ -93,9 +93,13 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 ## MIDI Estimation
  `nnsvs-db-converter` can estimate MIDI information using the results of the [Language Definition](#language-definition) for note timing and pitch detection for the pitch information. This is used for DiffSinger variance pitch support. Read more about how to use it in [the help text.](#help-text-from-the-file-itself)
 
+ As of 01/16/2024, you now have the ability to choose which pitch estimator to use for MIDI estimation. Only `parselmouth` and `harvest` are available, which is Praat's To Pitch (ac) function and WORLD's Harvest algorithm respectively. A new argument `--pitch-extractor` has been added for this.
+
+ **Note:** Harvest is very CPU-intensive and might be a bit more dangerous to use multithreading on compared to parselmouth.
+
 ## Automatic Breath Detection
 
- As of 12/09/2023, `nnsvs-db-converter` now supports automatic breath detection, using a similar algorithm from [MakeDiffSinger's Acoustic Auto Aligner.](https://github.com/openvpi/MakeDiffSinger/blob/main/acoustic_forced_alignment/enhance_tg.py#L105-L172) It is modified to better capture the breaths, although it may mislabel them sometimes still.
+ As of 12/09/2023, `nnsvs-db-converter` now supports automatic breath detection, using a similar algorithm from [MakeDiffSinger's Acoustic Auto Aligner.](https://github.com/openvpi/MakeDiffSinger/blob/main/acoustic_forced_alignment/enhance_tg.py#L105-L172) It is modified to better capture the breaths, although it may mislabel them still.
 
  A new argument `--detect-breaths` or `-B` is now added for this, with other arguments to further control the detection. Read more about them in [the help text.](#help-text-from-the-file-itself)
 
@@ -118,11 +122,11 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ...
 ```
 usage: db_converter.py [-h] [--max-length float] [--max-length-relaxation-factor float] [--max-silences int]
                        [--max-sp-length float] [--audio-sample-rate int] [--language-def path] [--estimate-midi]
-                       [--use-cents] [--time-step float] [--f0-min float] [--f0-max float]
-                       [--voicing-threshold-midi float] [--detect-breaths] [--voicing-threshold-breath float]
-                       [--breath-window-size float] [--breath-min-length float] [--breath-db-threshold float]
-                       [--breath-centroid-threshold float] [--write-ds] [--write-labels htk|aud] [--num-processes int]
-                       [--debug]
+                       [--use-cents] [--pitch-extractor parselmouth | harvest] [--time-step float] [--f0-min float]
+                       [--f0-max float] [--voicing-threshold-midi float] [--detect-breaths]
+                       [--voicing-threshold-breath float] [--breath-window-size float] [--breath-min-length float]
+                       [--breath-db-threshold float] [--breath-centroid-threshold float] [--write-ds]
+                       [--write-labels htk | aud] [--num-processes int] [--debug]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -153,6 +157,9 @@ optional arguments:
   --estimate-midi, -m   Whether to estimate MIDI or not. Only works if a language definition is added for note
                         splitting. (default: False)
   --use-cents, -c       Add cent offsets for MIDI estimation. (default: False)
+  --pitch-extractor parselmouth | harvest, -p parselmouth | harvest
+                        Pitch extractor used for MIDI estimation. Only parselmouth reads voicing-threshold-midi.
+                        (default: parselmouth)
   --time-step float, -t float
                         The time step used for all frame-by-frame analysis functions. (default: 0.005)
   --f0-min float, -f float
@@ -173,7 +180,7 @@ optional arguments:
   --breath-centroid-threshold float, -C float
                         The threshold in the spectral centroid of the signal in Hz to detect a breath. (default: 2000)
   --write-ds, -D        Write .ds files for usage with SlurCutter or for preprocessing. (default: False)
-  --write-labels htk|aud, -w htk|aud
+  --write-labels htk | aud, -w htk | aud
                         Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud"
                         gives Audacity style labels. (default: None)
   --num-processes int, -T int

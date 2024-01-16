@@ -2,7 +2,6 @@ import numpy as np # Numpy <3
 import scipy.signal as signal # find peaks
 import soundfile as sf # wav read and write
 from argparse import ArgumentParser, MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter # fancy argument passing
-import glob # file finding
 import os # cmd pause
 from pathlib import Path # path fiddling
 import traceback # errors
@@ -12,6 +11,8 @@ import csv # csv
 import json # json
 import librosa # key notation
 import parselmouth as pm # speedy pitch detection
+import pyworld as pw # accurate cpu pitch detection
+from abc import ABC, abstractmethod # abstract classes
 import time # timer
 import logging # logger
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO, datefmt='%x %a %X')
@@ -23,6 +24,47 @@ pauses = ['sil', 'pau', 'SP', 'AP']
 # Combined formatter for argparse to show typing and defaults
 class CombinedFormatter(MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter):
     pass
+
+# abstracted pitch extractors
+class PE(ABC):
+    @abstractmethod
+    def get_pitch(x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45):
+        raise NotImplementedError('Pitch Extractor not implemented')
+
+class ParselmouthPE(PE):
+    def get_pitch(x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45):
+        # from openvpi/DiffSinger/utils/binarizer_utils.py get_pitch_parselmouth
+        hop_size = time_step * fs
+        length = int(x.size / hop_size)
+
+        l_pad = int(np.ceil(1.5 / f0_min * fs))
+        r_pad = int(hop_size * ((x.size - 1) // hop_size + 1) - x.size + l_pad + 1)
+        x = np.pad(x, (l_pad, r_pad))
+
+        p = pm.Sound(x, sampling_frequency=fs).to_pitch_ac(
+            time_step=time_step, voicing_threshold=voicing_threshold,
+            pitch_floor=f0_min, pitch_ceiling=f0_max)
+        assert np.abs(p.t1 - 1.5 / f0_min) < 0.001
+
+        f0 = p.selected_array['frequency']
+        if f0.size < length:
+            f0 = np.pad(f0, (0, length - f0.size))
+        f0 = f0[:length]
+
+        return f0
+    
+class HarvestPE(PE):
+    def get_pitch(x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45):
+        length = int(x.size / (time_step * fs))
+        time_step *= 1000
+
+        f0, _ = pw.harvest(x, fs, f0_floor=f0_min, f0_ceil=f0_max, frame_period=time_step)
+
+        if f0.size < length:
+            f0 = np.pad(f0, (0, length - f0.size))
+        f0 = f0[:length]
+
+        return f0
 
 # Simple label class cuz I'm quirky
 class Label:
@@ -108,15 +150,18 @@ class LabelList: # should've been named segment in hindsight...
         ph_num = np.diff(vowel_pos)
         return ' '.join(map(str, ph_num)), vowel_pos
     
-    def to_midi_strings(self, x, fs, split_pos, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, cents=False): # midi estimation
+    def to_midi_strings(self, x, fs, split_pos, pitch='parselmouth', time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, cents=False): # midi estimation
         global pauses
-        f0, pps = get_pitch(x, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold) # get pitch
-        pitch = f0
-        pitch[pitch > 0] = librosa.hz_to_midi(pitch[pitch > 0])
+        pps = 1 / time_step
+        f0 = pitch
+        if isinstance(pitch, str):
+            f0 = get_pitch(x, fs, pe=pitch, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold) # get pitch
+        midi_pitch = np.copy(f0)
+        midi_pitch[midi_pitch > 0] = librosa.hz_to_midi(midi_pitch[midi_pitch > 0])
 
-        if pitch.size < self.length() * pps:
-            pad = math.ceil(self.length() * pps) - pitch.size
-            pitch = np.pad(pitch, [0, pad], mode='edge')
+        if midi_pitch.size < self.length() * pps:
+            pad = math.ceil(self.length() * pps) - midi_pitch.size
+            midi_pitch = np.pad(midi_pitch, [0, pad], mode='edge')
 
         note_seq = []
         note_dur = []
@@ -141,7 +186,7 @@ class LabelList: # should've been named segment in hindsight...
             if is_rest:
                 note_seq.append('rest') 
             else: # get modal pitch
-                note_pitch = pitch[p_s:p_e]
+                note_pitch = midi_pitch[p_s:p_e]
                 note_pitch = note_pitch[note_pitch > 0]
                 if note_pitch.size > 0:
                     counts = np.bincount(np.round(note_pitch).astype(np.int64))
@@ -161,7 +206,7 @@ class LabelList: # should've been named segment in hindsight...
         global pauses
         # Features needed
         sound = pm.Sound(x, sampling_frequency=fs)
-        f0 = sound.to_pitch_ac(time_step=time_step, voicing_threshold=voicing_threshold, pitch_floor=f0_min, pitch_ceiling=f0_max).selected_array['frequency'] # VUVs
+        f0 = get_pitch(x, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold) # VUVs
         hop_size = int(time_step * fs)
         centroid = librosa.feature.spectral_centroid(y=x, sr=fs, hop_length=hop_size).squeeze(0) # centroid
         rms = librosa.amplitude_to_db(librosa.feature.rms(y=x, hop_length=hop_size).squeeze(0)) # RMS for peak/dip searching
@@ -464,13 +509,16 @@ def write_label(path, label, isHTK=True): # write label with start offset
             else:
                 f.write(f'{l.start - offset}\t{l.end - offset}\t{l.phone}\n')
 
-def get_pitch(x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45): # parselmouth F0
-    f0 = pm.Sound(x, sampling_frequency=fs).to_pitch_ac(
-        time_step=time_step, voicing_threshold=voicing_threshold,
-        pitch_floor=f0_min, pitch_ceiling=f0_max
-    ).selected_array['frequency']
+def get_pitch(x, fs, pe='parselmouth', time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45): # parselmouth F0
+    if pe not in ['parselmouth', 'harvest']:
+        logging.warning('Pitch Extractor not supported. Fallback to parselmouth.')
+        pe = 'parselmouth'
+    
+    pe = pe[0].upper() + pe[1:] + 'PE'
+    pe_cls = globals()[pe]
+    f0 = pe_cls.get_pitch(x, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold)
 
-    return f0, 1 / time_step
+    return f0
 
 # From MakeDiffSinger/variance-temp-solution/get_pitch.py
 def norm_f0(f0):
@@ -496,7 +544,7 @@ def interp_f0(f0, uv=None):
     return denorm_f0(f0, uv=None), uv
 
 
-def write_ds(loc, wav, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, **kwargs):
+def write_ds(loc, wav, fs, pitch='parselmouth', time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.45, **kwargs):
     res = {'offset' : 0}
     res['text'] = kwargs['ph_seq']
     res['ph_seq'] = kwargs['ph_seq']
@@ -507,7 +555,9 @@ def write_ds(loc, wav, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_thre
             res['note_seq'] = kwargs['note_seq']
             res['note_dur'] = kwargs['note_dur']
             res['note_slur'] = ' '.join(['0'] * len(kwargs['note_dur']))
-    f0, _ = get_pitch(wav, fs, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold)
+    f0 = pitch
+    if isinstance(pitch, str):
+        f0 = get_pitch(wav, fs, pe=pitch, time_step=time_step, f0_min=f0_min, f0_max=f0_max, voicing_threshold=voicing_threshold)
     timestep = time_step
     f0, _ = interp_f0(f0)
     res['f0_seq'] = ' '.join([str(round(x, 1)) for x in f0])
@@ -526,6 +576,14 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
     if args.audio_sample_rate != 0 and fs != args.audio_sample_rate:
         x = librosa.resample(x, orig_sr=fs, target_sr=args.audio_sample_rate)
         fs = args.audio_sample_rate
+
+    pitch = args.pitch_extractor # precalculate midi pitch
+    if args.estimate_midi or args.write_ds:
+        logging.info(f'Estimating pitch for {wav}')
+        pitch = get_pitch(x, fs, pe=pitch,
+                            time_step=args.time_step,
+                            f0_min=args.f0_min, f0_max=args.f0_max,
+                            voicing_threshold=args.voicing_threshold_midi)
     
     logging.info(f'Segmenting {lab}.')
     fname = lab.stem
@@ -540,10 +598,14 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
 
         s = int(fs * segment.start)
         e = int(fs * segment.end)
+        p_s = int(segment.start / args.time_step)
+        p_e = int(segment.end / args.time_step)
         segment_wav = x[s:e]
+        segment_pitch = pitch
+        if args.estimate_midi or args.write_ds:
+            segment_pitch = pitch[p_s:p_e]
 
         if args.detect_breaths:
-            # detect_breath(self, x, fs, time_step=0.005, f0_min=40, f0_max=1100, voicing_threshold=0.6, window=0.05, min_len=0.06, min_db=-60, min_centroid=2000):
             segment.detect_breath(segment_wav, fs,
                                   time_step=args.time_step,
                                   f0_min=args.f0_min, f0_max=args.f0_max,
@@ -565,7 +627,8 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
             num = [int(x) for x in transcript_row['ph_num'].split()]
             assert len(dur) == sum(num), 'Ops'
             if args.estimate_midi:
-                note_seq, note_dur = segment.to_midi_strings(segment_wav, fs,split_pos,
+                note_seq, note_dur = segment.to_midi_strings(segment_wav, fs, split_pos,
+                                                             pitch=segment_pitch,
                                                              time_step=args.time_step,
                                                              f0_min=args.f0_min, f0_max=args.f0_max,
                                                              voicing_threshold=args.voicing_threshold_midi,
@@ -586,7 +649,7 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
                 write_label(segment_loc / (segment_name + ('.lab' if isHTK else '.txt')), segment, isHTK)
             
             if args.write_ds:
-                write_ds(segment_loc / (segment_name + '.ds'), segment_wav, fs,
+                write_ds(segment_loc / (segment_name + '.ds'), segment_wav, fs, pitch=segment_pitch,
                          time_step=args.time_step, f0_min=args.f0_min, f0_max=args.f0_max,
                          voicing_threshold=args.voicing_threshold_midi, **transcript_row)
         else:
@@ -606,6 +669,7 @@ if __name__ == '__main__':
         parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
         parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
         parser.add_argument('--use-cents', '-c', action='store_true', help='Add cent offsets for MIDI estimation.')
+        parser.add_argument('--pitch-extractor', '-p', type=str, metavar='parselmouth | harvest', default='parselmouth', help='Pitch extractor used for MIDI estimation. Only parselmouth reads voicing-threshold-midi.')
         parser.add_argument('--time-step', '-t', type=float, default=0.005, help='The time step used for all frame-by-frame analysis functions.')
         parser.add_argument('--f0-min', '-f', type=float, default=40, help='The minimum F0 to detect in Hz. Used in MIDI estimation and breath detection.')
         parser.add_argument('--f0-max', '-F', type=float, default=1100, help='The maximum F0 to detect in Hz. Used in MIDI estimation and breath detection.')
@@ -617,7 +681,7 @@ if __name__ == '__main__':
         parser.add_argument('--breath-db-threshold', '-e', type=float, default=-60, help='The threshold in the RMS of the signal in dB to detect a breath.')
         parser.add_argument('--breath-centroid-threshold', '-C', type=float, default=2000, help='The threshold in the spectral centroid of the signal in Hz to detect a breath.')
         parser.add_argument('--write-ds', '-D', action='store_true', help='Write .ds files for usage with SlurCutter or for preprocessing.')
-        parser.add_argument('--write-labels', '-w', type=str, metavar='htk|aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
+        parser.add_argument('--write-labels', '-w', type=str, metavar='htk | aud', help='Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud" gives Audacity style labels.')
         parser.add_argument('--num-processes', '-T', type=int, default=1, help='Number of processes to run for faster segmentation. Enter 0 to use all cores.')
         parser.add_argument('--debug', '-d', action='store_true', help='Show debug logs.')
         
@@ -633,8 +697,8 @@ if __name__ == '__main__':
 
         # Label finding
         logging.info('Finding all labels.')
-        lab_locs = glob.glob(str(base_path / '**/*.lab'), recursive=True)
-        lab_locs.sort()
+        lab_locs = list(base_path.glob('**/*.lab'))
+        lab_locs.sort(key=lambda x : x.name)
         lab_locs = [Path(x) for x in lab_locs]
         logging.info(f'Found {len(lab_locs)} label' + ('.' if len(lab_locs) == 1 else 's.'))
         
@@ -643,12 +707,12 @@ if __name__ == '__main__':
         for i in lab_locs:
             file = i.name
             wav_name = i.with_suffix('.wav').name
-            temp = glob.glob(str(base_path / '**' / wav_name), recursive=True)
+            temp = list(base_path.glob(f'**/{wav_name}'))
             if len(temp) == 0:
                 raise FileNotFoundError(f'No wave file equivalent of {file} was found.')
             if len(temp) > 1:
                 logging.warning(f'Found more than one instance of a wave file equivalent for {file}. Picking {temp[0]}.')
-            lab_wav[i] = Path(temp[0])
+            lab_wav[i] = temp[0]
 
         # check for language definition
         lang = None
