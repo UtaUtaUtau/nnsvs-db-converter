@@ -1,4 +1,7 @@
 {
     "vowels" : ["a", "i", "u", "e", "o", "N", "A", "I", "U", "E", "O"],
-    "liquids" : ["w", "y"]
+    "liquids" : {
+        "w" : ["k", "g"],
+        "y" : true
+    }
 }

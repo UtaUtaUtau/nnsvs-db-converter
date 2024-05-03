@@ -76,18 +76,21 @@ python db_converter.py [-l max_length -s max_silences -S max_sp_length -w htk|au
 
 ## Language Definition
 
- Language definition is a `.json` file containing the vowels and the "liquids" of the phoneme system the labels are on. This `.json` file will then be passed on through the `--language-def` argument. This is used for DiffSinger variance duration support. Vowels are where the splits will be made. Liquids are for special cases where a consonant is wanted to be the first part of the split. Here's a quick example `.json` file and a sample split.
+ Language definition is a `.json` file containing the vowels and the "liquids" of the phoneme system the labels are on. This `.json` file will then be passed on through the `--language-def` argument. This is used for DiffSinger variance duration support. Vowels are where the splits will be made. Liquids are for special cases where a consonant is wanted to be the first part of the split. The liquids will be pushed if the phoneme before it is a specified consonant in the given array or any consonant if it is set to `true`. Here's a quick example `.json` file and a sample split.
 
 ```json
 {
-   "vowels" : ["a", "i", "u", "e", "o", "N", "A", "I", "U", "E", "O"],
-   "liquids" : ["w", "y"]
+    "vowels" : ["a", "i", "u", "e", "o", "N", "A", "I", "U", "E", "O"], // All vowels in the phoneme set
+    "liquids" : {
+        "w" : ["k", "g"], // Only pushes timing for these consonants
+        "y" : true // Pushes timing for all consonants
+    }
 }
 ```
 
 ```
-ph_seq    |  SP | k | a | a | k | a | w | a | k | w | a | ... 
-ph_num    |    2    | 1 |   2   |   2   |   2   |   2   | ... 
+ph_seq    |  SP | k | a | a | k | a | w | a | k | w | a | b | w | a |... 
+ph_num    |    2    | 1 |   2   |   2   |   2   |       4       |    ... 
 ```
 
 ## MIDI Estimation
