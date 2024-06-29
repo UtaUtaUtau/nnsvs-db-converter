@@ -110,7 +110,7 @@ class LabelList: # should've been named segment in hindsight...
         phones = []
         for l in self.labels: 
             if detect_breaths: # all non-SP and AP pauses are SP
-                p = l.phone.replace('pau', 'SP').replace('sil', 'SP')
+                p = l.phone.replace('pau', 'SP').replace('sil', 'SP').replace('br', 'AP')
                 phones.append(p)
             else: # old behavior when not using breath detection
                 p = l.phone.replace('sil', 'SP')
