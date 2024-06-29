@@ -113,7 +113,7 @@ class LabelList: # should've been named segment in hindsight...
                 p = l.phone.replace('pau', 'SP').replace('sil', 'SP').replace('br', 'AP')
                 phones.append(p)
             else: # old behavior when not using breath detection
-                p = l.phone.replace('sil', 'SP')
+                p = l.phone.replace('sil', 'SP').replace('br', 'AP')
                 if p == 'pau':
                     if l.length() <= max_sp_length:
                         p = 'SP'
