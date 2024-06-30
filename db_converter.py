@@ -19,7 +19,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=log
 import itertools # repeat
 import concurrent.futures as futures # threading
 
-pauses = ['sil', 'pau', 'SP', 'AP']
+pauses = ['sil', 'pau', 'SP']
 
 # Combined formatter for argparse to show typing and defaults
 class CombinedFormatter(MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter):
