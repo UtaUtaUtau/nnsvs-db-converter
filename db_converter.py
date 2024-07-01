@@ -106,20 +106,11 @@ class LabelList: # should've been named segment in hindsight...
         lens = [x.length() for x in self.labels]
         return math.fsum(lens)
 
-    def to_phone_string(self, max_sp_length = 1, detect_breaths=False): # space separated phonemes
+    def to_phone_string(self): # space separated phonemes
         phones = []
-        for l in self.labels: 
-            if detect_breaths: # all non-SP and AP pauses are SP
-                p = l.phone.replace('pau', 'SP').replace('sil', 'SP').replace('br', 'AP')
-                phones.append(p)
-            else: # old behavior when not using breath detection
-                p = l.phone.replace('sil', 'SP').replace('br', 'AP')
-                if p == 'pau':
-                    if l.length() <= max_sp_length:
-                        p = 'SP'
-                    else:
-                        p = 'AP'
-                phones.append(p)
+        for l in self.labels:
+            p = l.phone.replace('pau', 'SP').replace('sil', 'SP').replace('br', 'AP')
+            phones.append(p)
         return ' '.join(phones)
 
     def to_lengths_string(self): # space separated lengths
@@ -624,7 +615,7 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
 
         transcript_row = {
             'name' : segment_name,
-            'ph_seq' : segment.to_phone_string(max_sp_length=args.max_sp_length, detect_breaths=args.detect_breaths),
+            'ph_seq' : segment.to_phone_string(),
             'ph_dur' : segment.to_lengths_string()
             }
 
@@ -643,10 +634,10 @@ def process_lab_wav_pair(segment_loc, lab, wav, args, lang=None):
                 transcript_row['note_seq'] = note_seq
                 transcript_row['note_dur'] = note_dur
 
-        all_pau = np.all(np.array(list(map(lambda x : x in pauses, transcript_row['ph_seq'].split()))))
+        all_pau = np.all(np.fromiter(map(lambda x : x in ['SP', 'AP'], transcript_row['ph_seq'].split()), bool))
         all_rest = False
         if args.estimate_midi:
-            all_rest = np.all(np.array(list(map(lambda x : x == 'rest', transcript_row['note_seq'].split()))))
+            all_rest = np.all(np.fromiter(map(lambda x : x == 'rest', transcript_row['note_seq'].split()), bool))
 
         if not (all_pau or all_rest):
             sf.write(segment_loc / (segment_name + '.wav'), segment_wav, fs)
@@ -671,7 +662,6 @@ if __name__ == '__main__':
         parser.add_argument('--max-length', '-l', type=float, default=15, help='The maximum length of the samples in seconds.')
         parser.add_argument('--max-length-relaxation-factor', '-R', type=float, default=0.1, help='This length in seconds will be continuously added to the maximum length for segments that are too long for the maximum length to cut.')
         parser.add_argument('--max-silences', '-s', type=int, default=0, help='The maximum amount of silences (pau) in the middle of each segment. Set to a big amount to maximize segment lengths.')
-        parser.add_argument('--max-sp-length', '-S', type=float, default=0.5, help='The maximum length for silences (pau) to turn into SP. Ignored when breath detection is enabled. Only here for fallback.')
         parser.add_argument('--audio-sample-rate', '-r', type=int, default=44100, help='The sampling rate in Hz to put the audio files in. If the sampling rates do not match it will be converted to the specified sampling rate. Enter 0 to ignore sample rates.')
         parser.add_argument('--language-def', '-L', type=str, metavar='path', help='The path of the language definition .json file. If present, phoneme numbers will be added.')
         parser.add_argument('--estimate-midi', '-m', action='store_true', help='Whether to estimate MIDI or not. Only works if a language definition is added for note splitting.')
