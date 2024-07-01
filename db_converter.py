@@ -679,7 +679,7 @@ if __name__ == '__main__':
         breath_detection_group.add_argument('--detect-breaths', '-B', action='store_true', help='Detect breaths within all pauses.')
         breath_detection_group.add_argument('--voicing-threshold-breath', '-v', type=float, default=0.6, help='The voicing threshold used for breath detection.')
         breath_detection_group.add_argument('--breath-window-size', '-W', type=float, default=0.05, help='The size of the window in seconds for breath detection.')
-        breath_detection_group.add_argument('--breath-min-length', '-b', type=float, default=0.1    , help='The minimum length of a breath in seconds.')
+        breath_detection_group.add_argument('--breath-min-length', '-b', type=float, default=0.1, help='The minimum length of a breath in seconds.')
         breath_detection_group.add_argument('--breath-db-threshold', '-e', type=float, default=-60, help='The threshold in the RMS of the signal in dB to detect a breath.')
         breath_detection_group.add_argument('--breath-centroid-threshold', '-C', type=float, default=2000, help='The threshold in the spectral centroid of the signal in Hz to detect a breath.')
         outputs_group = parser.add_argument_group('output options', description='Options related to output DiffSinger database.')
