@@ -721,6 +721,8 @@ if __name__ == '__main__':
         if args.language_def:
             with open(args.language_def) as f:
                 lang = json.load(f)
+            if isinstance(lang['liquids'], list): # support for old lang spec
+                lang['liquids'] = {x : True for x in lang['liquids']}
             transcript_header.append('ph_num')
 
         if args.estimate_midi:
