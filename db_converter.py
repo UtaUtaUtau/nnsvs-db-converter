@@ -119,7 +119,7 @@ class LabelList: # should've been named segment in hindsight...
     def to_phone_nums_string(self, lang): # phoneme separations
         # Find all vowel positions
         vowel_pos = []
-        if self.labels[0].phone not in pauses + lang['vowels']:
+        if self.labels[0].phone not in pauses + lang['vowels'] + ['br', 'AP']:
             vowel_pos.append(0)
 
         for i in range(len(self.labels)):
@@ -140,7 +140,7 @@ class LabelList: # should've been named segment in hindsight...
                         vowel_pos.append(i)
                 else:
                     vowel_pos.append(i)
-            elif l.phone in pauses:
+            elif l.phone in pauses + ['br', 'AP']:
                 vowel_pos.append(i)
         vowel_pos.append(len(self))
 
