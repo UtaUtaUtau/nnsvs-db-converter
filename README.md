@@ -123,13 +123,13 @@ ph_num    |    2    | 1 |   2   |   2   |   2   |       4       |    ...
 
 ## Help Text from the file itself
 ```
-usage: db_converter.py [-h] [--max-length float] [--max-length-relaxation-factor float] [--max-silences int]
-                       [--audio-sample-rate int] [--language-def path] [--estimate-midi] [--use-cents]
-                       [--pitch-extractor parselmouth | harvest] [--time-step float] [--f0-min float] [--f0-max float]
-                       [--voicing-threshold-midi float] [--detect-breaths] [--voicing-threshold-breath float]
-                       [--breath-window-size float] [--breath-min-length float] [--breath-db-threshold float]
-                       [--breath-centroid-threshold float] [--write-ds] [--write-labels htk | aud]
-                       [--num-processes int] [--debug]
+usage: db_converter.py [-h] [--num-processes int] [--debug] [--max-length float]
+                       [--max-length-relaxation-factor float] [--max-silences int] [--audio-sample-rate int]
+                       [--language-def path] [--estimate-midi] [--use-cents] [--pitch-extractor parselmouth | harvest]
+                       [--time-step float] [--f0-min float] [--f0-max float] [--voicing-threshold-midi float]
+                       [--detect-breaths] [--voicing-threshold-breath float] [--breath-window-size float]
+                       [--breath-min-length float] [--breath-db-threshold float] [--breath-centroid-threshold float]
+                       [--write-ds] [--write-labels htk | aud]
                        path
 
 Converts a database with mono labels (NNSVS Format) into the DiffSinger format and saves it in a new folder in the
@@ -140,6 +140,13 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --num-processes int, -T int
+                        Number of processes to run for faster segmentation. Enter 0 to use all cores. (default: 1)
+  --debug, -d           Show debug logs. (default: False)
+
+segmentation options:
+  Options related to segmentation.
+
   --max-length float, -l float
                         The maximum length of the samples in seconds. (default: 15)
   --max-length-relaxation-factor float, -R float
@@ -151,6 +158,10 @@ options:
   --audio-sample-rate int, -r int
                         The sampling rate in Hz to put the audio files in. If the sampling rates do not match it will
                         be converted to the specified sampling rate. Enter 0 to ignore sample rates. (default: 44100)
+
+MIDI estimation options:
+  Options related to MIDI Estimation. MIDI estimation requires a language definition.
+
   --language-def path, -L path
                         The path of the language definition .json file. If present, phoneme numbers will be added.
                         (default: None)
@@ -168,6 +179,10 @@ options:
                         The maximum F0 to detect in Hz. Used in MIDI estimation and breath detection. (default: 1100)
   --voicing-threshold-midi float, -V float
                         The voicing threshold used for MIDI estimation. (default: 0.45)
+
+breath detection options:
+  Options for breath detection. Enabled with --detect-breaths.
+
   --detect-breaths, -B  Detect breaths within all pauses. (default: False)
   --voicing-threshold-breath float, -v float
                         The voicing threshold used for breath detection. (default: 0.6)
@@ -179,11 +194,12 @@ options:
                         The threshold in the RMS of the signal in dB to detect a breath. (default: -60)
   --breath-centroid-threshold float, -C float
                         The threshold in the spectral centroid of the signal in Hz to detect a breath. (default: 2000)
+
+output options:
+  Options related to output DiffSinger database.
+
   --write-ds, -D        Write .ds files for usage with SlurCutter or for preprocessing. (default: False)
   --write-labels htk | aud, -w htk | aud
                         Write labels if you want to check segmentation labels. "htk" gives HTK style labels, "aud"
                         gives Audacity style labels. (default: None)
-  --num-processes int, -T int
-                        Number of processes to run for faster segmentation. Enter 0 to use all cores. (default: 1)
-  --debug, -d           Show debug logs. (default: False)
 ```
