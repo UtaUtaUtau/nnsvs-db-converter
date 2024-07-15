@@ -1,9 +1,9 @@
 # nnsvs-db-converter
  Python script to convert NNSVS DBs to DiffSinger without needing the NNSVS Python Library.
 # Information
- This is a Python script for converting singing databases with HTS mono labels into the DiffSinger format. This Python script deals with sample segmentation to mostly ensure that samples have a maximum given length and a maximum amount of pauses in between. The recognized silence phonemes by this script are `sil`, `pau`, `SP`, and `AP`. `sil` is always converted into `SP`. It also assumes the labels have silences labeled at the start and end.
+ This is a Python script for converting singing databases with HTS mono labels into the DiffSinger format. This Python script deals with sample segmentation to mostly ensure that samples have a maximum given length and a maximum amount of pauses in between. The recognized silence phonemes by this script are `sil`, `pau`, and `SP`. `AP` and `br` are special symbols considered as breaths. All silences turn into `SP` and all breaths turn into `AP`. It also assumes the labels have silences labeled at the start and end.
  
- This Python script only requires four external libraries to work, unlike the existing one which needs the NNSVS library, which might be hard to install for most people.
+ This Python script only requires six external libraries to work, unlike the existing one which needs the NNSVS library, which might be hard to install for most people.
 # How to Use
 
 ## Main Usage
