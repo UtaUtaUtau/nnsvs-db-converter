@@ -44,7 +44,7 @@ python db_converter.py [-l max_length -s max_silences -w htk|aud] path/to/nnsvs/
 
 ### Conversion with variance duration support
 
- If want to use a DiffSinger variance model for timing prediction only.
+ If you want to use a DiffSinger variance model for timing prediction only.
  
  **Requirements:** NNSVS-style Database (.wav and .lab only), [Language Definition](#language-definition)
  
