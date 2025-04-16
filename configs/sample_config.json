@@ -1,0 +1,5 @@
+{
+    "base_config": "configs/base_config.json",
+    "max_length_relaxation": 0.05,
+    "pitch_extractor": "harvest"
+}

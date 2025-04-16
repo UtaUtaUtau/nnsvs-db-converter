@@ -1,0 +1,18 @@
+{
+    "num_processes": 1,
+    "debug": false,
+    "multilingual_database": false,
+    "max_length": 15,
+    "max_length_relaxation": 0.1,
+    "sample_rate": 44100,
+    "language_def": null,
+    "estimate_midi": false,
+    "remove_cents": false,
+    "pitch_extractor": "parselmouth",
+    "time_step": 0.005,
+    "f0_min": 71,
+    "f0_max": 1100,
+    "voicing_threshold": 0.45,
+    "write_ds": false,
+    "write_labels": null
+}
