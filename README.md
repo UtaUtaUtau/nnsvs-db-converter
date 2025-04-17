@@ -6,6 +6,10 @@
  - [x] .json configs for easier argument passing
  - [x] uv for easier dependency management
  - [ ] actual code for segmentation
+    - [ ] label reading
+    - [ ] label segmentation
+    - [ ] audio segmentation
+    - [ ] fade audio in ends
  - [ ] language definition for duration prediction data
  - [ ] midi estimation
  - [x] multilang processing
