@@ -1,8 +1,8 @@
- - [x] config files in JSON because YAML is a crime. you can still pass arguments but it's for convenience's sake.
- - [x] use uv for easier dependency management
- - [ ] multispeaker + multilang processing so u don't have to run it on every single fucking speaker anymore. this does mean I'm gonna make a standard with folder structure so I hope that's fine.
- - [ ] removing some obsolete features like the old AP/SP treatment, breath detection (nobody uses that ngl), max silences (I know y'all just put it at a high fucking number)
- - [ ] bringing back AP cutting but I'll also make it fade the cut so it isn't abrupt. actually I could just fade the cuts in general ngl.
- - [ ] organize the code better for my own sanity.
- - [ ] Maybe. HUGE maybe. RMVPE support.
- - [ ] Also HUGE maybe. SOME integration.
+ - config files in JSON because YAML is a crime. you can still pass arguments but it's for convenience's sake.
+ - use uv for easier dependency management
+ - multispeaker + multilang processing so u don't have to run it on every single fucking speaker anymore. this does mean I'm gonna make a standard with folder structure so I hope that's fine.
+ - removing some obsolete features like the old AP/SP treatment, breath detection (nobody uses that ngl), max silences (I know y'all just put it at a high fucking number)
+ - bringing back AP cutting but I'll also make it fade the cut so it isn't abrupt. actually I could just fade the cuts in general ngl.
+ - organize the code better for my own sanity.
+ - Maybe. HUGE maybe. RMVPE support.
+ - Also HUGE maybe. SOME integration.

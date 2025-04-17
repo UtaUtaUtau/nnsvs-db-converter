@@ -1,11 +1,13 @@
-from __future__ import annotations
 import logging
 from pathlib import Path
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s: %(message)s',
     level=logging.INFO, datefmt='%x %a %X'
 )
+import traceback
+import os
 from utils.configs import load_config
+from process import process_single, process_multilingual
 from argparse import ArgumentParser, MetavarTypeHelpFormatter, ArgumentDefaultsHelpFormatter, Namespace
 
 # combined formatter for arguments
@@ -53,9 +55,9 @@ def main():
         help='Show debug logs.'
     )
     parser.add_argument(
-        '--multilingual-database', '-M',
+        '--multilingual-database', '-L',
         action='store_true',
-        help='Tells the segmenter that the database is multilingual. This requires a certain folder structure explained in the readme.'
+        help='Tells the segmenter that the database is multispeaker/multilingual. This requires a certain folder structure explained in the readme.'
     )
     parser.add_argument(
         '--config', '-C',
@@ -69,7 +71,7 @@ def main():
         description='Options related to segmentation behavior.'
     )
     segmentation_group.add_argument(
-        '--max_length', '-l',
+        '--max_length', '-m',
         type=float, metavar='sec', default=15,
         help='The maximum length of each segment.'
     )
@@ -84,7 +86,7 @@ def main():
         help='The sampling rate that the converted database will be in. Enter 0 to leave segments in their original sampling rate.'
     )
     segmentation_group.add_argument(
-        '--language-def', '-L',
+        '--language-def', '-l',
         type=str, metavar='path',
         help='Path to a language definition file to add data for phoneme duration prediction. Multilingual databases have language definitions by default.'
     )
@@ -95,7 +97,7 @@ def main():
         description='Options related to MIDI estimation.'
     )
     midi_estimation_group.add_argument(
-        '--estimate-midi', '-m',
+        '--estimate-midi', '-M',
         action='store_true',
         help='Enable MIDI estimation. Requires a language definition.'
     )
@@ -146,7 +148,7 @@ def main():
     )
 
     args, _ = parser.parse_known_args()
-    print(args)
+    # check which args are modified
     dict_args = vars(args)
     modified_args = []
     for k, v in list(dict_args.items()):
@@ -154,12 +156,30 @@ def main():
             modified_args.append(k)
             dict_args[k] = v
 
+    # override config if exists
     if args.config:
         config = load_config(Path(args.config))
         for k, v in config.items():
             if k not in modified_args:
                 dict_args[k] = v
 
-    
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    if args.multilingual_database:
+        process_multilingual(Path(args.path), args)
+    else:
+        process_single(
+            Path(args.path),
+            Path(args.path) / 'diffsinger_db',
+            args.language_def,
+            args
+        )
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        for i in traceback.format_exception(e.__class__, e, e.__traceback__):
+            print(i, end='')
+        os.system('pause')
