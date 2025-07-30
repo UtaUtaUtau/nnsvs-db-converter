@@ -6,3 +6,4 @@
  - organize the code better for my own sanity.
  - Maybe. HUGE maybe. RMVPE support.
  - Also HUGE maybe. SOME integration.
+ - Reading MIDI files for the MIDI info.
